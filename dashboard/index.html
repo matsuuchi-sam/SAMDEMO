@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAMDEMO ダッシュボード</title>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            background: #0f1117;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #2a2d3a;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        header h1 span {
+            font-size: 0.9rem;
+            color: #888;
+            font-weight: normal;
+            margin-left: 8px;
+        }
+
+        /* 接続状態インジケータ */
+        #status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: #1a1d2a;
+        }
+
+        #status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #444;
+            transition: background 0.3s;
+        }
+
+        #status-dot.connected { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+        #status-dot.connecting { background: #ff9800; animation: pulse 1s infinite; }
+        #status-dot.disconnected { background: #f44336; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* メトリクスカード */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background: #1a1d2a;
+            border: 1px solid #2a2d3a;
+            border-radius: 12px;
+            padding: 16px 20px;
+            text-align: center;
+        }
+
+        .metric-card .label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .metric-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #fff;
+            line-height: 1;
+        }
+
+        .metric-card .unit {
+            font-size: 0.9rem;
+            color: #888;
+            margin-left: 2px;
+        }
+
+        .metric-card.temp   { border-top: 3px solid #ff6b6b; }
+        .metric-card.humid  { border-top: 3px solid #4ecdc4; }
+        .metric-card.press  { border-top: 3px solid #a78bfa; }
+        .metric-card.count  { border-top: 3px solid #ffd93d; }
+
+        /* グラフパネル */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .chart-grid { grid-template-columns: 1fr; }
+        }
+
+        .chart-panel {
+            background: #1a1d2a;
+            border: 1px solid #2a2d3a;
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .chart-panel h3 {
+            font-size: 0.85rem;
+            color: #aaa;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .chart-panel canvas {
+            max-height: 200px;
+        }
+
+        /* ログパネル */
+        .log-panel {
+            background: #1a1d2a;
+            border: 1px solid #2a2d3a;
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .log-panel h3 {
+            font-size: 0.85rem;
+            color: #aaa;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .log-panel h3 button {
+            background: #2a2d3a;
+            border: none;
+            color: #aaa;
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+
+        .log-panel h3 button:hover { background: #3a3d4a; color: #fff; }
+
+        #log-container {
+            height: 150px;
+            overflow-y: auto;
+            font-family: "Consolas", "Courier New", monospace;
+            font-size: 0.78rem;
+            color: #ccc;
+            background: #0f1117;
+            border-radius: 6px;
+            padding: 8px;
+        }
+
+        .log-entry { margin-bottom: 2px; line-height: 1.5; }
+        .log-entry .ts { color: #555; margin-right: 6px; }
+        .log-entry.sensor .ts { color: #4caf50; }
+        .log-entry.log .ts { color: #ff9800; }
+        .log-entry.err .ts { color: #f44336; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>SAMDEMO <span>IoT 温度制御システム ダッシュボード</span></h1>
+    <div id="status-badge">
+        <div id="status-dot" class="connecting"></div>
+        <span id="status-text">接続中...</span>
+    </div>
+</header>
+
+<!-- メトリクスカード -->
+<div class="metrics-grid">
+    <div class="metric-card temp">
+        <div class="label">温度</div>
+        <div class="value" id="val-temp">--<span class="unit">°C</span></div>
+    </div>
+    <div class="metric-card humid">
+        <div class="label">湿度</div>
+        <div class="value" id="val-humidity">--<span class="unit">%</span></div>
+    </div>
+    <div class="metric-card press">
+        <div class="label">気圧</div>
+        <div class="value" id="val-pressure">--<span class="unit">hPa</span></div>
+    </div>
+    <div class="metric-card count">
+        <div class="label">受信件数</div>
+        <div class="value" id="val-count">0<span class="unit">件</span></div>
+    </div>
+</div>
+
+<!-- グラフパネル -->
+<div class="chart-grid">
+    <div class="chart-panel">
+        <h3>温度 / 湿度</h3>
+        <canvas id="chart-temp-humid"></canvas>
+    </div>
+    <div class="chart-panel">
+        <h3>気圧</h3>
+        <canvas id="chart-pressure"></canvas>
+    </div>
+</div>
+
+<!-- ログパネル -->
+<div class="log-panel">
+    <h3>
+        受信ログ
+        <button onclick="clearLog()">クリア</button>
+    </h3>
+    <div id="log-container"></div>
+</div>
+
+<script>
+// ============================================================
+// 設定
+// ============================================================
+const WS_URL = "ws://localhost:8765";
+const MAX_DATA_POINTS = 60;  // グラフに表示する最大データ点数
+const RECONNECT_INTERVAL_MS = 3000;  // 再接続間隔
+
+// ============================================================
+// グラフの初期化
+// ============================================================
+const chartDefaults = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    plugins: {
+        legend: {
+            labels: { color: "#aaa", font: { size: 11 } }
+        }
+    },
+    scales: {
+        x: {
+            ticks: { color: "#666", font: { size: 10 }, maxTicksLimit: 6 },
+            grid: { color: "#2a2d3a" }
+        },
+        y: {
+            ticks: { color: "#888", font: { size: 10 } },
+            grid: { color: "#2a2d3a" }
+        }
+    }
+};
+
+// 温度/湿度チャート
+const ctxTH = document.getElementById("chart-temp-humid").getContext("2d");
+const chartTH = new Chart(ctxTH, {
+    type: "line",
+    data: {
+        labels: [],
+        datasets: [
+            {
+                label: "温度 (°C)",
+                data: [],
+                borderColor: "#ff6b6b",
+                backgroundColor: "rgba(255,107,107,0.1)",
+                borderWidth: 2,
+                pointRadius: 2,
+                fill: true,
+                tension: 0.4,
+                yAxisID: "y"
+            },
+            {
+                label: "湿度 (%)",
+                data: [],
+                borderColor: "#4ecdc4",
+                backgroundColor: "rgba(78,205,196,0.1)",
+                borderWidth: 2,
+                pointRadius: 2,
+                fill: true,
+                tension: 0.4,
+                yAxisID: "y1"
+            }
+        ]
+    },
+    options: {
+        ...chartDefaults,
+        scales: {
+            ...chartDefaults.scales,
+            y:  { ...chartDefaults.scales.y, position: "left" },
+            y1: { ...chartDefaults.scales.y, position: "right", grid: { drawOnChartArea: false } }
+        }
+    }
+});
+
+// 気圧チャート
+const ctxP = document.getElementById("chart-pressure").getContext("2d");
+const chartP = new Chart(ctxP, {
+    type: "line",
+    data: {
+        labels: [],
+        datasets: [{
+            label: "気圧 (hPa)",
+            data: [],
+            borderColor: "#a78bfa",
+            backgroundColor: "rgba(167,139,250,0.1)",
+            borderWidth: 2,
+            pointRadius: 2,
+            fill: true,
+            tension: 0.4
+        }]
+    },
+    options: chartDefaults
+});
+
+// ============================================================
+// データ更新
+// ============================================================
+let dataCount = 0;
+
+function formatTime(ts) {
+    const d = new Date(ts * 1000);
+    return d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function pushDataPoint(chart, label, ...values) {
+    chart.data.labels.push(label);
+    values.forEach((v, i) => chart.data.datasets[i].data.push(v));
+
+    // 古いデータを削除
+    if (chart.data.labels.length > MAX_DATA_POINTS) {
+        chart.data.labels.shift();
+        chart.data.datasets.forEach(ds => ds.data.shift());
+    }
+    chart.update("none");
+}
+
+function updateMetrics(data) {
+    dataCount++;
+
+    // カード更新
+    if (data.temp !== undefined) {
+        document.getElementById("val-temp").innerHTML =
+            `${data.temp.toFixed(1)}<span class="unit">°C</span>`;
+    }
+    if (data.humidity !== undefined) {
+        document.getElementById("val-humidity").innerHTML =
+            `${data.humidity.toFixed(1)}<span class="unit">%</span>`;
+    }
+    if (data.pressure !== undefined) {
+        document.getElementById("val-pressure").innerHTML =
+            `${data.pressure.toFixed(1)}<span class="unit">hPa</span>`;
+    }
+    document.getElementById("val-count").innerHTML =
+        `${dataCount}<span class="unit">件</span>`;
+
+    // グラフ更新
+    const label = formatTime(data.ts || data.received_at || Date.now() / 1000);
+    if (data.temp !== undefined && data.humidity !== undefined) {
+        pushDataPoint(chartTH, label, data.temp, data.humidity);
+    }
+    if (data.pressure !== undefined) {
+        pushDataPoint(chartP, label, data.pressure);
+    }
+}
+
+// ============================================================
+// ログ出力
+// ============================================================
+function addLog(type, message) {
+    const container = document.getElementById("log-container");
+    const entry = document.createElement("div");
+    entry.className = `log-entry ${type}`;
+
+    const now = new Date();
+    const ts = now.toLocaleTimeString("ja-JP");
+
+    entry.innerHTML = `<span class="ts">[${ts}]</span>${message}`;
+    container.appendChild(entry);
+
+    // 最大 200 行まで保持
+    while (container.children.length > 200) {
+        container.removeChild(container.firstChild);
+    }
+
+    container.scrollTop = container.scrollHeight;
+}
+
+function clearLog() {
+    document.getElementById("log-container").innerHTML = "";
+}
+
+// ============================================================
+// WebSocket 接続
+// ============================================================
+let ws = null;
+let reconnectTimer = null;
+
+function updateStatus(state) {
+    const dot = document.getElementById("status-dot");
+    const text = document.getElementById("status-text");
+
+    dot.className = state;
+    switch (state) {
+        case "connected":
+            text.textContent = "接続中";
+            break;
+        case "connecting":
+            text.textContent = "接続中...";
+            break;
+        case "disconnected":
+            text.textContent = "切断";
+            break;
+    }
+}
+
+function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+
+    updateStatus("connecting");
+    addLog("log", `WebSocket 接続試行: ${WS_URL}`);
+
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+        updateStatus("connected");
+        addLog("sensor", "WebSocket 接続成功");
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+
+            switch (data.type) {
+                case "sensor":
+                    updateMetrics(data);
+                    const demoTag = data.demo ? " [DEMO]" : "";
+                    addLog("sensor",
+                        `センサーデータ${demoTag}: temp=${data.temp}°C, ` +
+                        `humidity=${data.humidity}%, pressure=${data.pressure}hPa`
+                    );
+                    break;
+
+                case "connected":
+                    addLog("sensor", data.message);
+                    break;
+
+                case "log":
+                    addLog("log", `[デバイス] ${data.message}`);
+                    break;
+
+                default:
+                    addLog("log", `受信: ${event.data}`);
+            }
+        } catch (e) {
+            addLog("err", `JSONパースエラー: ${event.data}`);
+        }
+    };
+
+    ws.onerror = (error) => {
+        addLog("err", "WebSocket エラー発生");
+    };
+
+    ws.onclose = () => {
+        updateStatus("disconnected");
+        addLog("err", `切断されました。${RECONNECT_INTERVAL_MS / 1000}秒後に再接続します...`);
+
+        reconnectTimer = setTimeout(() => {
+            connect();
+        }, RECONNECT_INTERVAL_MS);
+    };
+}
+
+// ============================================================
+// 初期化
+// ============================================================
+document.addEventListener("DOMContentLoaded", () => {
+    addLog("log", "SAMDEMO ダッシュボード起動");
+    addLog("log", `サーバーへ接続: ${WS_URL}`);
+    addLog("log", "サーバーが起動していない場合: python dashboard/server.py");
+    connect();
+});
+</script>
+
+</body>
+</html>

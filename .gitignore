@@ -1,0 +1,32 @@
+# ビルド生成物（RX63N）
+iot-demo-rx/*.o
+iot-demo-rx/src/*.o
+iot-demo-rx/startup/*.o
+iot-demo-rx/*.elf
+iot-demo-rx/*.mot
+iot-demo-rx/*.map
+iot-demo-rx/*.asm
+
+# PlatformIO ビルドキャッシュ（ESP32）
+iot-demo-esp32/.pio/
+
+# Python キャッシュ
+__pycache__/
+*.pyc
+*.pyo
+
+# エディタ設定
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS ファイル
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 環境変数・シークレット（絶対に公開しない）
+.env
+*.key
+*.pem

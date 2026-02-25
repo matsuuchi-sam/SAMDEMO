@@ -1,0 +1,23 @@
+{
+  "allowedTools": [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep"
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(pio:*)",
+      "Bash(python:*)",
+      "Bash(rx-elf-gcc:*)",
+      "Bash(rx-elf-objcopy:*)",
+      "Bash(rx-elf-size:*)"
+    ],
+    "deny": [
+      "Bash(rfp-cli:*)"
+    ]
+  }
+}
