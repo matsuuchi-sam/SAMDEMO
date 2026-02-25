@@ -195,7 +195,7 @@
 <body>
 
 <header>
-    <h1>SAMDEMO <span>IoT 温度制御システム ダッシュボード</span></h1>
+    <h1>SAMDEMO <span>ESP32 + BME280 センサーダッシュボード</span></h1>
     <div id="status-badge">
         <div id="status-dot" class="connecting"></div>
         <span id="status-text">接続中...</span>
@@ -506,7 +506,8 @@ function connect() {
 document.addEventListener("DOMContentLoaded", () => {
     addLog("log", "SAMDEMO ダッシュボード起動");
     addLog("log", `サーバーへ接続: ${WS_URL}`);
-    addLog("log", "サーバーが起動していない場合: python dashboard/server.py");
+    addLog("log", "【手順】① python server.py --port COM3  ② このページを開く");
+    addLog("log", "サーバーなしで試す場合: python server.py（デモモード）");
     connect();
 });
 </script>

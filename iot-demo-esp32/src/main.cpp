@@ -1,218 +1,109 @@
 /**
  * @file main.cpp
- * @brief SAMDEMO ESP32 メインファームウェア
+ * @brief ESP32 + BME280 センサーデモ
  *
- * 対応接続方式（wifi_config.h の CONNECTION_MODE で切り替え）:
- *   MODE 1: USB Serial    開発・デバッグ向け。ケーブル必須。
- *   MODE 2: WiFi WebSocket デモ向け。ワイヤレス。PC で graph 表示。
- *   MODE 3: Bluetooth SPP  WiFi不要のワイヤレス。PCのBT内蔵が必要。
+ * 温度・湿度・気圧を1秒ごとに読み取り、USB Serial で JSON 送信する。
+ * PC の server.py + index.html でリアルタイムグラフ表示できる。
  *
- * 物理配線:
- *   ┌──────────────────────────────────────────────────────┐
- *   │  BME280         GR-SAKURA (RX63N)    ESP32 (esp32dev)│
- *   │  VCC  ──────── 3.3V                                  │
- *   │  GND  ──────── GND  ──────────────── GND             │
- *   │  SDA  ──────── P16 (SDA0)                            │
- *   │  SCL  ──────── P17 (SCL0)                            │
- *   │                P20 (TXD0) ──────── GPIO16 (RX1)      │
- *   │                P21 (RXD0) ──────── GPIO17 (TX1)      │
- *   │                                    USB ─── PC        │
- *   └──────────────────────────────────────────────────────┘
- *   ※ GR-SAKURA も ESP32 も 3.3V 動作 → レベル変換不要
- *   ※ GND は必ず共通にすること
+ * ─── 配線（4本だけ）────────────────────────────
+ *   BME280        ESP32 (esp32dev)
+ *   VCC  ──────── 3.3V  ※5Vピンには絶対つながない
+ *   GND  ──────── GND
+ *   SDA  ──────── GPIO21 (デフォルトSDA)
+ *   SCL  ──────── GPIO22 (デフォルトSCL)
+ * ─────────────────────────────────────────────────
+ *
+ * 送信 JSON フォーマット（1秒ごと、改行区切り）:
+ *   {"type":"sensor","temp":25.3,"humidity":60.1,"pressure":1013.2,"ts":12345}
  */
 
 #include <Arduino.h>
-#include "wifi_config.h"
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
 
-// ===========================================================
-// 接続方式ごとのインクルード
-// ===========================================================
-#if CONNECTION_MODE == CONNECTION_MODE_WIFI
-  #include <WiFi.h>
-  #include <WebSocketsClient.h>
-  #include <ArduinoJson.h>
+// ─── 設定 ────────────────────────────────────────
+#define SEND_INTERVAL_MS  1000   // 送信間隔（ミリ秒）
+#define SERIAL_BAUD       115200 // シリアル通信速度
 
-#elif CONNECTION_MODE == CONNECTION_MODE_BT
-  #include <BluetoothSerial.h>
-  #if !defined(CONFIG_BT_ENABLED)
-    #error "このボードは Bluetooth に対応していません"
-  #endif
+// BME280 の I2C アドレス
+// 多くのモジュール: 0x76（SDO を GND に接続）
+// 一部のモジュール: 0x77（SDO を VCC に接続）
+#define BME280_ADDR  0x76
+// ─────────────────────────────────────────────────
 
-#endif  // CONNECTION_MODE
+Adafruit_BME280 bme;
 
-// ===========================================================
-// 定数・グローバル変数
-// ===========================================================
-#define SAKURA_RX_PIN   RXSAKURA_UART_RX_PIN   // GPIO16
-#define SAKURA_TX_PIN   RXSAKURA_UART_TX_PIN   // GPIO17
-#define SAKURA_BAUD     RXSAKURA_UART_BAUD     // 115200
-
-// GR-SAKURA からの受信バッファ
-static char     rx_buf[256];
-static int      rx_buf_pos = 0;
 static uint32_t packet_count = 0;
+static uint32_t last_send_ms = 0;
 
-// 接続オブジェクト（モードごとに有効化）
-#if CONNECTION_MODE == CONNECTION_MODE_WIFI
-  static WebSocketsClient wsClient;
-  static bool             ws_connected = false;
-
-#elif CONNECTION_MODE == CONNECTION_MODE_BT
-  static BluetoothSerial  btSerial;
-#endif
-
-// ===========================================================
-// 共通：センサーデータ1行を処理・送信する
-// ===========================================================
-static void send_sensor_data(const char *line)
-{
-    if (!line || line[0] == '\0') return;
-    packet_count++;
-
-#if CONNECTION_MODE == CONNECTION_MODE_USB
-    // USB Serial にそのまま出力（monitor.py や pio monitor で確認）
-    Serial.printf("[%05lu] %s\n", packet_count, line);
-
-#elif CONNECTION_MODE == CONNECTION_MODE_WIFI
-    // WiFi WebSocket でPCの server.py へ送信
-    if (ws_connected) {
-        wsClient.sendTXT(line);
-        Serial.printf("[WS TX %05lu] %s\n", packet_count, line);
-    } else {
-        Serial.printf("[WS OFFLINE %05lu] %s\n", packet_count, line);
-    }
-
-#elif CONNECTION_MODE == CONNECTION_MODE_BT
-    // Bluetooth SPP で送信（PC に仮想 COM ポートとして見える）
-    if (btSerial.connected()) {
-        btSerial.println(line);
-        Serial.printf("[BT TX %05lu] %s\n", packet_count, line);
-    } else {
-        Serial.printf("[BT OFFLINE %05lu] %s\n", packet_count, line);
-    }
-#endif
-}
-
-// ===========================================================
-// WiFi モード: WebSocket イベントハンドラ
-// ===========================================================
-#if CONNECTION_MODE == CONNECTION_MODE_WIFI
-static void ws_event(WStype_t type, uint8_t *payload, size_t length)
-{
-    switch (type) {
-        case WStype_DISCONNECTED:
-            ws_connected = false;
-            Serial.println("[WS] 切断 - 再接続を試みます...");
-            break;
-
-        case WStype_CONNECTED:
-            ws_connected = true;
-            Serial.printf("[WS] 接続完了: ws://%s:%d\n",
-                          WS_SERVER_IP, WS_SERVER_PORT);
-            // 接続通知を server.py へ送る
-            wsClient.sendTXT("{\"type\":\"hello\",\"device\":\"ESP32\"}");
-            break;
-
-        case WStype_TEXT:
-            // server.py からのメッセージ（ACK 等）
-            Serial.printf("[WS RX] %s\n", (char *)payload);
-            break;
-
-        default:
-            break;
-    }
-}
-#endif  // CONNECTION_MODE_WIFI
-
-// ===========================================================
-// setup() - 起動時の初期化
-// ===========================================================
+// ─── 初期化 ──────────────────────────────────────
 void setup()
 {
-    // USB デバッグ用シリアル
-    Serial.begin(115200);
+    Serial.begin(SERIAL_BAUD);
     delay(500);
 
-    Serial.println("\n=== SAMDEMO ESP32 Firmware ===");
+    Serial.println("\n=== SAMDEMO: ESP32 + BME280 ===");
 
-#if CONNECTION_MODE == CONNECTION_MODE_USB
-    Serial.println("接続モード: USB Serial");
-    Serial.println("PC で monitor.py または pio device monitor を起動してください");
-
-#elif CONNECTION_MODE == CONNECTION_MODE_WIFI
-    Serial.println("接続モード: WiFi WebSocket");
-    Serial.printf("接続先 WiFi: %s\n", WIFI_SSID);
-    Serial.printf("接続先 server.py: ws://%s:%d\n", WS_SERVER_IP, WS_SERVER_PORT);
-
-    // WiFi 接続
-    Serial.print("WiFi 接続中");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    int timeout = 0;
-    while (WiFi.status() != WL_CONNECTED && timeout < 30) {
-        delay(500);
-        Serial.print(".");
-        timeout++;
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\nWiFi 接続完了! ESP32 IP: %s\n",
-                      WiFi.localIP().toString().c_str());
-    } else {
-        Serial.println("\nWiFi 接続失敗! wifi_config.h の SSID/PASSWORD を確認してください");
+    // BME280 を初期化（0x76 で失敗したら 0x77 も試す）
+    bool ok = bme.begin(BME280_ADDR);
+    if (!ok) {
+        Serial.println("[RETRY] 0x76 で見つからず、0x77 を試します...");
+        ok = bme.begin(0x77);
     }
 
-    // WebSocket 接続設定（server.py への接続）
-    wsClient.begin(WS_SERVER_IP, WS_SERVER_PORT, "/");
-    wsClient.onEvent(ws_event);
-    wsClient.setReconnectInterval(3000);  // 3秒で再接続
+    if (!ok) {
+        Serial.println("[ERROR] BME280 が見つかりません！");
+        Serial.println("  確認ポイント:");
+        Serial.println("  1. 配線: SDA=GPIO21, SCL=GPIO22, VCC=3.3V");
+        Serial.println("  2. VCC に 5V を接続していないか");
+        Serial.println("  3. GND が ESP32 と共通になっているか");
+        // 見つかるまでループ（USB を刺し直して再起動で復帰）
+        while (true) {
+            delay(2000);
+            Serial.println("[WAIT] BME280 を待機中...");
+            if (bme.begin(BME280_ADDR) || bme.begin(0x77)) {
+                Serial.println("[OK] BME280 を検出しました！");
+                break;
+            }
+        }
+    }
 
-#elif CONNECTION_MODE == CONNECTION_MODE_BT
-    Serial.println("接続モード: Bluetooth SPP");
-    Serial.printf("デバイス名: %s\n", BT_DEVICE_NAME);
-    Serial.println("PC の Bluetooth でペアリングしてください");
-
-    btSerial.begin(BT_DEVICE_NAME);
-    Serial.println("Bluetooth 起動完了 - ペアリング待機中...");
-#endif
-
-    // GR-SAKURA との UART 通信を初期化
-    Serial1.begin(SAKURA_BAUD, SERIAL_8N1, SAKURA_RX_PIN, SAKURA_TX_PIN);
-    Serial.printf("GR-SAKURA UART: RX=GPIO%d TX=GPIO%d %dbps\n",
-                  SAKURA_RX_PIN, SAKURA_TX_PIN, SAKURA_BAUD);
-    Serial.println("GR-SAKURA からのデータ待機中...\n");
+    Serial.println("[OK] BME280 初期化完了");
+    Serial.println("[OK] 1秒ごとに JSON を送信します");
+    Serial.println();
+    Serial.println("─── PC での確認方法 ──────────────────────────────");
+    Serial.println("  シリアルモニタ: pio device monitor");
+    Serial.println("  グラフ表示:     python ../dashboard/server.py --port <COMポート>");
+    Serial.println("                  その後 index.html をブラウザで開く");
+    Serial.println("──────────────────────────────────────────────────");
+    Serial.println();
 }
 
-// ===========================================================
-// loop() - メインループ
-// ===========================================================
+// ─── メインループ ─────────────────────────────────
 void loop()
 {
-#if CONNECTION_MODE == CONNECTION_MODE_WIFI
-    // WebSocket の定期処理（再接続・受信処理）
-    wsClient.loop();
-#endif
+    uint32_t now = millis();
+    if (now - last_send_ms < SEND_INTERVAL_MS) return;
+    last_send_ms = now;
 
-    // GR-SAKURA からの UART データを受信
-    while (Serial1.available() > 0)
-    {
-        char c = (char)Serial1.read();
+    // センサー値を読み取る
+    float temp     = bme.readTemperature();           // 摂氏
+    float humidity = bme.readHumidity();              // %RH
+    float pressure = bme.readPressure() / 100.0F;    // hPa に変換
+    uint32_t ts    = now / 1000;                      // 秒単位のタイムスタンプ
 
-        if (c == '\n') {
-            // 1行受信完了 → 送信処理
-            rx_buf[rx_buf_pos] = '\0';
-            if (rx_buf_pos > 0) {
-                send_sensor_data(rx_buf);
-            }
-            rx_buf_pos = 0;
-        }
-        else if (c != '\r') {
-            if (rx_buf_pos < (int)(sizeof(rx_buf) - 1)) {
-                rx_buf[rx_buf_pos++] = c;
-            } else {
-                // バッファオーバーフロー対処
-                Serial.println("[WARN] RX buffer overflow");
-                rx_buf_pos = 0;
-            }
-        }
+    // 異常値チェック（センサー未接続や読み取りエラー）
+    if (isnan(temp) || isnan(humidity) || isnan(pressure)) {
+        Serial.println("[WARN] センサー読み取りエラー。配線を確認してください。");
+        return;
     }
+
+    packet_count++;
+
+    // JSON で出力（dashboard の server.py がこのフォーマットを期待している）
+    Serial.printf(
+        "{\"type\":\"sensor\",\"temp\":%.1f,\"humidity\":%.1f,\"pressure\":%.1f,\"ts\":%lu}\n",
+        temp, humidity, pressure, ts
+    );
 }
