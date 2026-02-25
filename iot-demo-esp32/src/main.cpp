@@ -2,189 +2,217 @@
  * @file main.cpp
  * @brief SAMDEMO ESP32 メインファームウェア
  *
- * Phase 1: UART エコー動作確認スケルトン
+ * 対応接続方式（wifi_config.h の CONNECTION_MODE で切り替え）:
+ *   MODE 1: USB Serial    開発・デバッグ向け。ケーブル必須。
+ *   MODE 2: WiFi WebSocket デモ向け。ワイヤレス。PC で graph 表示。
+ *   MODE 3: Bluetooth SPP  WiFi不要のワイヤレス。PCのBT内蔵が必要。
  *
- * ハードウェア構成:
- *   - ESP32 (esp32dev)
- *   - Serial (USB): デバッグ出力 115200bps
- *   - Serial1 (GPIO16/17): GR-SAKURA RX63N との通信 115200bps
- *
- * 将来の拡張予定:
- *   - [EXTEND: WIFI] WiFi 接続とルータへの接続
- *   - [EXTEND: WEBSOCKET] WebSocket クライアント/サーバーの実装
- *   - [EXTEND: JSON] GR-SAKURA からの JSON データをパースして転送
+ * 物理配線:
+ *   ┌──────────────────────────────────────────────────────┐
+ *   │  BME280         GR-SAKURA (RX63N)    ESP32 (esp32dev)│
+ *   │  VCC  ──────── 3.3V                                  │
+ *   │  GND  ──────── GND  ──────────────── GND             │
+ *   │  SDA  ──────── P16 (SDA0)                            │
+ *   │  SCL  ──────── P17 (SCL0)                            │
+ *   │                P20 (TXD0) ──────── GPIO16 (RX1)      │
+ *   │                P21 (RXD0) ──────── GPIO17 (TX1)      │
+ *   │                                    USB ─── PC        │
+ *   └──────────────────────────────────────────────────────┘
+ *   ※ GR-SAKURA も ESP32 も 3.3V 動作 → レベル変換不要
+ *   ※ GND は必ず共通にすること
  */
 
 #include <Arduino.h>
+#include "wifi_config.h"
 
-/* ===========================================================================
- * 設定定数
- * platformio.ini の build_flags で定義された値を使用
- * =========================================================================*/
-#ifndef RXSAKURA_UART_RX_PIN
-  #define RXSAKURA_UART_RX_PIN  16
+// ===========================================================
+// 接続方式ごとのインクルード
+// ===========================================================
+#if CONNECTION_MODE == CONNECTION_MODE_WIFI
+  #include <WiFi.h>
+  #include <WebSocketsClient.h>
+  #include <ArduinoJson.h>
+
+#elif CONNECTION_MODE == CONNECTION_MODE_BT
+  #include <BluetoothSerial.h>
+  #if !defined(CONFIG_BT_ENABLED)
+    #error "このボードは Bluetooth に対応していません"
+  #endif
+
+#endif  // CONNECTION_MODE
+
+// ===========================================================
+// 定数・グローバル変数
+// ===========================================================
+#define SAKURA_RX_PIN   RXSAKURA_UART_RX_PIN   // GPIO16
+#define SAKURA_TX_PIN   RXSAKURA_UART_TX_PIN   // GPIO17
+#define SAKURA_BAUD     RXSAKURA_UART_BAUD     // 115200
+
+// GR-SAKURA からの受信バッファ
+static char     rx_buf[256];
+static int      rx_buf_pos = 0;
+static uint32_t packet_count = 0;
+
+// 接続オブジェクト（モードごとに有効化）
+#if CONNECTION_MODE == CONNECTION_MODE_WIFI
+  static WebSocketsClient wsClient;
+  static bool             ws_connected = false;
+
+#elif CONNECTION_MODE == CONNECTION_MODE_BT
+  static BluetoothSerial  btSerial;
 #endif
 
-#ifndef RXSAKURA_UART_TX_PIN
-  #define RXSAKURA_UART_TX_PIN  17
-#endif
-
-#ifndef RXSAKURA_UART_BAUD
-  #define RXSAKURA_UART_BAUD    115200
-#endif
-
-#define DEBUG_BAUD  115200   /* USB シリアル（デバッグ）の通信速度 */
-
-/* ===========================================================================
- * グローバル変数
- * =========================================================================*/
-
-/* GR-SAKURA との通信バッファ */
-static char rx_buf[256];
-static int  rx_buf_pos = 0;
-
-/* ===========================================================================
- * 関数プロトタイプ
- * =========================================================================*/
-static void process_sakura_line(const char *line);
-
-/* ===========================================================================
- * setup() - Arduino 初期化関数
- * =========================================================================*/
-void setup()
+// ===========================================================
+// 共通：センサーデータ1行を処理・送信する
+// ===========================================================
+static void send_sensor_data(const char *line)
 {
-    /* USB シリアル（デバッグ用）の初期化 */
-    Serial.begin(DEBUG_BAUD);
-    while (!Serial) {
-        delay(10);  /* ポートが開くまで待機（最大 1 秒）*/
-        static int wait_count = 0;
-        if (++wait_count > 100) break;
+    if (!line || line[0] == '\0') return;
+    packet_count++;
+
+#if CONNECTION_MODE == CONNECTION_MODE_USB
+    // USB Serial にそのまま出力（monitor.py や pio monitor で確認）
+    Serial.printf("[%05lu] %s\n", packet_count, line);
+
+#elif CONNECTION_MODE == CONNECTION_MODE_WIFI
+    // WiFi WebSocket でPCの server.py へ送信
+    if (ws_connected) {
+        wsClient.sendTXT(line);
+        Serial.printf("[WS TX %05lu] %s\n", packet_count, line);
+    } else {
+        Serial.printf("[WS OFFLINE %05lu] %s\n", packet_count, line);
     }
 
-    /* GR-SAKURA との UART 通信の初期化 */
-    /* Serial1: RX=GPIO16, TX=GPIO17 */
-    Serial1.begin(RXSAKURA_UART_BAUD, SERIAL_8N1,
-                  RXSAKURA_UART_RX_PIN, RXSAKURA_UART_TX_PIN);
-
-    Serial.println("=== SAMDEMO ESP32 Firmware ===");
-    Serial.println("Phase 1: UART Echo Test");
-    Serial.printf("  GR-SAKURA UART: RX=GPIO%d, TX=GPIO%d, %d bps\n",
-                  RXSAKURA_UART_RX_PIN, RXSAKURA_UART_TX_PIN, RXSAKURA_UART_BAUD);
-    Serial.println("");
-    Serial.println("Waiting for data from GR-SAKURA...");
-
-    /*
-     * [EXTEND: WIFI]
-     * WiFi 接続の初期化:
-     *   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-     *   while (WiFi.status() != WL_CONNECTED) { delay(500); }
-     *   Serial.printf("WiFi connected: %s\n", WiFi.localIP().toString().c_str());
-     */
-
-    /*
-     * [EXTEND: WEBSOCKET]
-     * WebSocket サーバーの初期化:
-     *   webSocket.begin();
-     *   webSocket.onEvent(webSocketEvent);
-     */
+#elif CONNECTION_MODE == CONNECTION_MODE_BT
+    // Bluetooth SPP で送信（PC に仮想 COM ポートとして見える）
+    if (btSerial.connected()) {
+        btSerial.println(line);
+        Serial.printf("[BT TX %05lu] %s\n", packet_count, line);
+    } else {
+        Serial.printf("[BT OFFLINE %05lu] %s\n", packet_count, line);
+    }
+#endif
 }
 
-/* ===========================================================================
- * loop() - Arduino メインループ
- * =========================================================================*/
+// ===========================================================
+// WiFi モード: WebSocket イベントハンドラ
+// ===========================================================
+#if CONNECTION_MODE == CONNECTION_MODE_WIFI
+static void ws_event(WStype_t type, uint8_t *payload, size_t length)
+{
+    switch (type) {
+        case WStype_DISCONNECTED:
+            ws_connected = false;
+            Serial.println("[WS] 切断 - 再接続を試みます...");
+            break;
+
+        case WStype_CONNECTED:
+            ws_connected = true;
+            Serial.printf("[WS] 接続完了: ws://%s:%d\n",
+                          WS_SERVER_IP, WS_SERVER_PORT);
+            // 接続通知を server.py へ送る
+            wsClient.sendTXT("{\"type\":\"hello\",\"device\":\"ESP32\"}");
+            break;
+
+        case WStype_TEXT:
+            // server.py からのメッセージ（ACK 等）
+            Serial.printf("[WS RX] %s\n", (char *)payload);
+            break;
+
+        default:
+            break;
+    }
+}
+#endif  // CONNECTION_MODE_WIFI
+
+// ===========================================================
+// setup() - 起動時の初期化
+// ===========================================================
+void setup()
+{
+    // USB デバッグ用シリアル
+    Serial.begin(115200);
+    delay(500);
+
+    Serial.println("\n=== SAMDEMO ESP32 Firmware ===");
+
+#if CONNECTION_MODE == CONNECTION_MODE_USB
+    Serial.println("接続モード: USB Serial");
+    Serial.println("PC で monitor.py または pio device monitor を起動してください");
+
+#elif CONNECTION_MODE == CONNECTION_MODE_WIFI
+    Serial.println("接続モード: WiFi WebSocket");
+    Serial.printf("接続先 WiFi: %s\n", WIFI_SSID);
+    Serial.printf("接続先 server.py: ws://%s:%d\n", WS_SERVER_IP, WS_SERVER_PORT);
+
+    // WiFi 接続
+    Serial.print("WiFi 接続中");
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    int timeout = 0;
+    while (WiFi.status() != WL_CONNECTED && timeout < 30) {
+        delay(500);
+        Serial.print(".");
+        timeout++;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("\nWiFi 接続完了! ESP32 IP: %s\n",
+                      WiFi.localIP().toString().c_str());
+    } else {
+        Serial.println("\nWiFi 接続失敗! wifi_config.h の SSID/PASSWORD を確認してください");
+    }
+
+    // WebSocket 接続設定（server.py への接続）
+    wsClient.begin(WS_SERVER_IP, WS_SERVER_PORT, "/");
+    wsClient.onEvent(ws_event);
+    wsClient.setReconnectInterval(3000);  // 3秒で再接続
+
+#elif CONNECTION_MODE == CONNECTION_MODE_BT
+    Serial.println("接続モード: Bluetooth SPP");
+    Serial.printf("デバイス名: %s\n", BT_DEVICE_NAME);
+    Serial.println("PC の Bluetooth でペアリングしてください");
+
+    btSerial.begin(BT_DEVICE_NAME);
+    Serial.println("Bluetooth 起動完了 - ペアリング待機中...");
+#endif
+
+    // GR-SAKURA との UART 通信を初期化
+    Serial1.begin(SAKURA_BAUD, SERIAL_8N1, SAKURA_RX_PIN, SAKURA_TX_PIN);
+    Serial.printf("GR-SAKURA UART: RX=GPIO%d TX=GPIO%d %dbps\n",
+                  SAKURA_RX_PIN, SAKURA_TX_PIN, SAKURA_BAUD);
+    Serial.println("GR-SAKURA からのデータ待機中...\n");
+}
+
+// ===========================================================
+// loop() - メインループ
+// ===========================================================
 void loop()
 {
-    /* --- GR-SAKURA からのデータ受信（Serial1）--- */
+#if CONNECTION_MODE == CONNECTION_MODE_WIFI
+    // WebSocket の定期処理（再接続・受信処理）
+    wsClient.loop();
+#endif
+
+    // GR-SAKURA からの UART データを受信
     while (Serial1.available() > 0)
     {
         char c = (char)Serial1.read();
 
-        /* 改行を受信したら行処理 */
-        if (c == '\n')
-        {
+        if (c == '\n') {
+            // 1行受信完了 → 送信処理
             rx_buf[rx_buf_pos] = '\0';
-
-            /* デバッグ: 受信データをそのまま USB シリアルに出力 */
-            Serial.print("[FROM SAKURA] ");
-            Serial.println(rx_buf);
-
-            /* 受信行を処理 */
-            process_sakura_line(rx_buf);
-
-            /* エコーバック（GR-SAKURA への折り返し送信）*/
-            Serial1.print("[ACK] ");
-            Serial1.println(rx_buf);
-
-            /* バッファをリセット */
+            if (rx_buf_pos > 0) {
+                send_sensor_data(rx_buf);
+            }
             rx_buf_pos = 0;
         }
-        else if (c != '\r')  /* \r は無視 */
-        {
-            /* バッファに蓄積（オーバーフロー防止）*/
-            if (rx_buf_pos < (int)(sizeof(rx_buf) - 1))
-            {
+        else if (c != '\r') {
+            if (rx_buf_pos < (int)(sizeof(rx_buf) - 1)) {
                 rx_buf[rx_buf_pos++] = c;
-            }
-            else
-            {
-                /* バッファオーバーフロー: リセット */
-                Serial.println("[WARN] RX buffer overflow, resetting");
+            } else {
+                // バッファオーバーフロー対処
+                Serial.println("[WARN] RX buffer overflow");
                 rx_buf_pos = 0;
             }
         }
     }
-
-    /* --- USB シリアルからのコマンド受信（デバッグ用）--- */
-    while (Serial.available() > 0)
-    {
-        char c = (char)Serial.read();
-        /* USB から受信した文字を GR-SAKURA へ転送（デバッグ用）*/
-        Serial1.write(c);
-    }
-
-    /*
-     * [EXTEND: WEBSOCKET]
-     * WebSocket の定期処理:
-     *   webSocket.loop();
-     */
-}
-
-/* ===========================================================================
- * GR-SAKURA からの1行データを処理する
- *
- * Phase 1: デバッグ出力のみ
- * Phase 3 以降: JSON パースして WebSocket で転送する
- * =========================================================================*/
-static void process_sakura_line(const char *line)
-{
-    if (line == nullptr || line[0] == '\0') {
-        return;
-    }
-
-    /*
-     * [EXTEND: JSON]
-     * Phase 3 での実装予定:
-     *
-     * #include <ArduinoJson.h>
-     *
-     * StaticJsonDocument<256> doc;
-     * DeserializationError error = deserializeJson(doc, line);
-     * if (error) {
-     *     Serial.printf("[ERROR] JSON parse failed: %s\n", error.c_str());
-     *     return;
-     * }
-     *
-     * float temp     = doc["temp"];
-     * float humidity = doc["humidity"];
-     * float pressure = doc["pressure"];
-     *
-     * Serial.printf("[DATA] temp=%.1f, humidity=%.1f, pressure=%.1f\n",
-     *               temp, humidity, pressure);
-     *
-     * // WebSocket で PC に転送
-     * webSocket.broadcastTXT(line);
-     */
-
-    /* Phase 1: 受信行をそのままログ出力（process_sakura_line はすでに上で呼ばれている）*/
-    /* 追加の処理が必要になった時点でここに実装を追加する */
 }

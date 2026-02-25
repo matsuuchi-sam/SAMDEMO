@@ -30,3 +30,6 @@ desktop.ini
 .env
 *.key
 *.pem
+
+# WiFi パスワード（絶対に公開しない）
+iot-demo-esp32/src/wifi_config.h
