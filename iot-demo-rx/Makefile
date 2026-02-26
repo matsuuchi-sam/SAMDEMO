@@ -8,11 +8,16 @@
 #   make clean            中間ファイルを削除
 # ==============================================================================
 
+# --- ツールチェーンパス ---
+GCC_DIR  = C:/Users/kouse/AppData/Roaming/GCC for Renesas RX 8.3.0.202411-GNURX-ELF/rx-elf/rx-elf/bin
+RFP_DIR  = C:/Program Files (x86)/Renesas Electronics/Programming Tools/Renesas Flash Programmer V3.22
+
 # --- ツールチェーン ---
-CC       = rx-elf-gcc
-OBJCOPY  = rx-elf-objcopy
-OBJDUMP  = rx-elf-objdump
-SIZE     = rx-elf-size
+CC       = "$(GCC_DIR)/rx-elf-gcc"
+OBJCOPY  = "$(GCC_DIR)/rx-elf-objcopy"
+OBJDUMP  = "$(GCC_DIR)/rx-elf-objdump"
+SIZE     = "$(GCC_DIR)/rx-elf-size"
+RFP_CLI  = "$(RFP_DIR)/rfp-cli"
 
 # --- コンパイルフラグ ---
 CFLAGS   = -mcpu=rx600 \
@@ -72,7 +77,7 @@ flash: build
 	@echo ""
 	@echo "=== GR-SAKURA への書き込み開始 (PORT=$(PORT)) ==="
 	@echo "注意: GR-SAKURA が $(PORT) に接続されていることを確認してください"
-	rfp-cli -d rx -t com -p $(PORT) -a $(TARGET).mot
+	$(RFP_CLI) -d rx -t com -p $(PORT) -a $(TARGET).mot
 	@echo "=== 書き込み完了 ==="
 
 # --- シリアルモニタ ---
