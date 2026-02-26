@@ -247,7 +247,7 @@
 // ============================================================
 // 設定
 // ============================================================
-const WS_URL = "ws://localhost:8765";
+const WS_URL = `ws://${window.location.hostname || 'localhost'}:8765`;
 const MAX_DATA_POINTS = 60;  // グラフに表示する最大データ点数
 const RECONNECT_INTERVAL_MS = 3000;  // 再接続間隔
 
