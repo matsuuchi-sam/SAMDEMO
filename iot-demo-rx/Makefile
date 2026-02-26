@@ -25,7 +25,6 @@ CFLAGS   = -mcpu=rx600 \
 
 # --- リンクフラグ ---
 LDFLAGS  = -T ./linker/rx63n.ld \
-           -Wl,--gc-sections \
            -Wl,-Map=$(TARGET).map \
            -nostartfiles
 

@@ -20,12 +20,13 @@
 /* ===========================================================================
  * リンカスクリプトで定義されたシンボル
  * =========================================================================*/
-extern uint32_t _data_start;   /* RAM 上の .data 開始アドレス */
-extern uint32_t _data_end;     /* RAM 上の .data 終了アドレス */
-extern uint32_t _data_rom_start; /* ROM 上の .data ロードアドレス */
-extern uint32_t _bss_start;    /* .bss 開始アドレス */
-extern uint32_t _bss_end;      /* .bss 終了アドレス */
-extern uint32_t _stack_end;    /* スタックトップ（高アドレス側）*/
+/* RX GCC は C シンボルに "_" を付加する: _data_start → ELF "__data_start" */
+extern uint32_t _data_start;    /* RAM 上の .data 開始アドレス */
+extern uint32_t _data_end;      /* RAM 上の .data 終了アドレス */
+extern uint32_t _data_rom_start;/* ROM 上の .data ロードアドレス */
+extern uint32_t _bss_start;     /* .bss 開始アドレス */
+extern uint32_t _bss_end;       /* .bss 終了アドレス */
+extern uint32_t _stack_end;     /* スタックトップ（高アドレス側）*/
 
 /* ===========================================================================
  * 関数プロトタイプ
@@ -33,14 +34,14 @@ extern uint32_t _stack_end;    /* スタックトップ（高アドレス側）*
 extern int main(void);
 
 void _start(void) __attribute__((section(".text.startup")));
-static void default_handler(void) __attribute__((weak));
+void default_handler(void) __attribute__((weak));
 
 /* ===========================================================================
  * デフォルト割り込みハンドラ
  * 未定義の割り込みが発生した場合にここに飛んでくる（無限ループ）
  * デバッグ時はここでブレークポイントを張ると捕捉できる
  * =========================================================================*/
-static void default_handler(void)
+void default_handler(void)
 {
     /* 未処理割り込みのキャッチ用 */
     while (1)

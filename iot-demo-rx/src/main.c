@@ -79,7 +79,6 @@ int main(void)
 
     /* --- メインループ --- */
     uint32_t count = 0;
-    char buf[64];
 
     while (1)
     {

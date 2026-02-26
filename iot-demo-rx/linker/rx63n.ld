@@ -1,54 +1,37 @@
 /**
  * rx63n.ld - RX63N リンカスクリプト
  *
- * GR-SAKURA (RX63N) のメモリマップ:
- *   ROM (フラッシュ): 0xFFE00000 - 0xFFFFFFFF (2MB)
- *                    または 0x00000000 - 0x001FFFFF (エイリアス)
- *   RAM:              0x00000000 - 0x0002FFFF (192KB 最大)
- *                    ※ RX63N の実際の RAM 開始は 0x00000000 ではなく
- *                      部品番号により異なる。GR-SAKURA は内蔵 RAM を使用。
+ * RX の GCC は C シンボルに "_" を付加する（COFF スタイル）。
+ * C コードの "_start" は ELF シンボル "__start" になる。
+ * そのため、リンカスクリプトのシンボル名も "__xxx" 形式にする。
  *
- * 参考: RX63N Group User's Manual: Hardware
- *   Table 1.3 Internal Memory Space
- *
- * 注意: このスクリプトはスケルトンです。
- *       実際の GR-SAKURA の部品番号（R5F563NBDxFP 等）に合わせて
- *       アドレスとサイズを確認・調整してください。
+ * GR-SAKURA (R5F563NBDxFP) メモリマップ:
+ *   ROM (.text): 0xFFE00000 - 0xFFFFFFD3
+ *   固定ベクタ:  0xFFFFFFD4 - 0xFFFFFFFF (44バイト)
+ *   RAM:         0x00010000 - 0x0002FFFF (128KB)
  */
 
 MEMORY
 {
-    /* ROM (フラッシュメモリ) - RX63N 2MB 品の場合 */
-    ROM (rx)  : ORIGIN = 0xFFE00000, LENGTH = 2048K
-
-    /* RAM - RX63N の内部 RAM */
-    /* GR-SAKURA (R5F563NBDxFP) の RAM: 128KB */
-    RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 128K
-
-    /* ID コードプロテクション領域 (書き込み保護設定) */
-    ID_CODE (r) : ORIGIN = 0xFFFFFFA0, LENGTH = 16
+    ROM      (rx)  : ORIGIN = 0xFFE00000, LENGTH = 0x1FFFD4
+    FVECTORS (rx)  : ORIGIN = 0xFFFFFFD4, LENGTH = 44
+    RAM      (rwx) : ORIGIN = 0x00010000, LENGTH = 128K
 }
 
-/* エントリポイント（startup.c の _start を使用）*/
-ENTRY(_start)
+/* エントリポイント: C の _start → ELF シンボル __start */
+ENTRY(__start)
 
 SECTIONS
 {
-    /* =========================================================
-     * .fvectors - 固定ベクタテーブル
-     * RX63N の固定ベクタは 0xFFFFFFD4 に配置（例外ベクタ等）
-     * ========================================================= */
     .fvectors 0xFFFFFFD4 :
     {
         KEEP(*(.fvectors))
-    } > ROM
+    } > FVECTORS
 
-    /* =========================================================
-     * .text - コードセクション
-     * ========================================================= */
     .text :
     {
         _text_start = .;
+        *(.text.startup)
         *(.text)
         *(.text.*)
         *(.rodata)
@@ -56,53 +39,33 @@ SECTIONS
         _text_end = .;
     } > ROM
 
-    /* =========================================================
-     * .data - 初期値あり変数
-     * ROM に格納され、起動時に RAM へコピーされる
-     * ========================================================= */
     .data :
     {
-        _data_start = .;
+        __data_start = .;
         *(.data)
         *(.data.*)
-        _data_end = .;
+        __data_end = .;
     } > RAM AT > ROM
 
-    /* ROM 上の .data ロードアドレス（コピー元）*/
-    _data_rom_start = LOADADDR(.data);
+    __data_rom_start = LOADADDR(.data);
 
-    /* =========================================================
-     * .bss - 初期値なし変数（ゼロクリア対象）
-     * ========================================================= */
     .bss :
     {
-        _bss_start = .;
+        __bss_start = .;
         *(.bss)
         *(.bss.*)
         *(COMMON)
-        _bss_end = .;
+        __bss_end = .;
     } > RAM
 
-    /* =========================================================
-     * スタック領域
-     * ========================================================= */
     .stack (NOLOAD) :
     {
         . = ALIGN(4);
-        _stack_start = .;
-        . += 0x1000;    /* 4KB スタック */
-        _stack_end = .;
+        __stack_start = .;
+        . += 0x1000;
+        __stack_end = .;
     } > RAM
 
-    /* ID コードセクション（オプション）*/
-    .id_code 0xFFFFFFA0 :
-    {
-        KEEP(*(.id_code))
-    } > ID_CODE
-
-    /* =========================================================
-     * デバッグ情報
-     * ========================================================= */
     /DISCARD/ :
     {
         *(.comment)
