@@ -1,20 +1,23 @@
 /**
  * @file main.cpp
- * @brief ESP32 + BME280 センサーデモ
+ * @brief SAMDEMO ESP32 + BME280 ファームウェア
  *
- * 温度・湿度・気圧を1秒ごとに読み取り、USB Serial で JSON 送信する。
- * PC の server.py + index.html でリアルタイムグラフ表示できる。
+ * ビルド環境（platformio.ini の env）で接続方式を切り替える:
+ *   pio run -e usb_mode   USB Serial → python server.py --port COM4
+ *   pio run -e bt_mode    Bluetooth  → python server.py --port <仮想COM>
  *
- * ─── 配線（4本だけ）────────────────────────────
- *   BME280        ESP32 (esp32dev)
- *   VCC  ──────── 3.3V  ※5Vピンには絶対つながない
- *   GND  ──────── GND
- *   SDA  ──────── GPIO21 (デフォルトSDA)
- *   SCL  ──────── GPIO22 (デフォルトSCL)
- * ─────────────────────────────────────────────────
+ * 配線（共通）:
+ *   BME280 VCC → 3.3V
+ *   BME280 GND → GND
+ *   BME280 SDA → GPIO21
+ *   BME280 SCL → GPIO22
  *
- * 送信 JSON フォーマット（1秒ごと、改行区切り）:
- *   {"type":"sensor","temp":25.3,"humidity":60.1,"pressure":1013.2,"ts":12345}
+ * 送信 JSON（1秒ごと・改行区切り）:
+ *   {"type":"sensor","temp":24.4,"humidity":43.9,"pressure":1018.3,"heater":false,"ts":42}
+ *
+ * 受信コマンド（PC → ESP32）:
+ *   HEATER_ON   GPIO26 を HIGH にしてヒーター ON
+ *   HEATER_OFF  GPIO26 を LOW  にしてヒーター OFF
  */
 
 #include <Arduino.h>
@@ -22,88 +25,146 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
-// ─── 設定 ────────────────────────────────────────
-#define SEND_INTERVAL_MS  1000   // 送信間隔（ミリ秒）
-#define SERIAL_BAUD       115200 // シリアル通信速度
+// ── BT モード時のみインクルード ────────────────────────
+#ifdef USE_BLUETOOTH
+  #include <BluetoothSerial.h>
+  #if !defined(CONFIG_BT_ENABLED)
+    #error "このボードは Bluetooth に対応していません"
+  #endif
+  static BluetoothSerial BT;
+  #define BT_DEVICE_NAME "SAMDEMO-ESP32"
+#endif
 
-// BME280 の I2C アドレス
-// 多くのモジュール: 0x76（SDO を GND に接続）
-// 一部のモジュール: 0x77（SDO を VCC に接続）
-#define BME280_ADDR  0x76
-// ─────────────────────────────────────────────────
+// ── 設定 ──────────────────────────────────────────────
+#define SEND_INTERVAL_MS  5000
+#define SERIAL_BAUD       115200
+#define BME280_ADDR       0x76   // 多くのモジュール: 0x76、一部: 0x77
+#define HEATER_PIN        26     // IRLZ44N Gate 制御ピン
 
-Adafruit_BME280 bme;
-
-static uint32_t packet_count = 0;
+// ── グローバル ─────────────────────────────────────────
+static Adafruit_BME280 bme;
 static uint32_t last_send_ms = 0;
+static uint32_t packet_count = 0;
+static bool     heater_on    = false;
 
-// ─── 初期化 ──────────────────────────────────────
-void setup()
-{
+// ── JSON を出力する先を1か所で切り替え ────────────────
+static void send_line(const char* line) {
+#ifdef USE_BLUETOOTH
+    if (BT.connected()) {
+        BT.println(line);
+    }
+    // BT 未接続時でもデバッグ用に USB には出力する
+    Serial.println(line);
+#else
+    Serial.println(line);
+#endif
+}
+
+// ── PC からのコマンドを受信してヒーターを制御 ──────────
+static void check_commands() {
+    String line = "";
+#ifdef USE_BLUETOOTH
+    if (BT.available()) {
+        line = BT.readStringUntil('\n');
+    }
+#else
+    if (Serial.available()) {
+        line = Serial.readStringUntil('\n');
+    }
+#endif
+    line.trim();
+    if (line.length() == 0) return;
+
+    if (line == "HEATER_ON") {
+        heater_on = true;
+        digitalWrite(HEATER_PIN, HIGH);
+        send_line("{\"type\":\"heater\",\"state\":\"on\"}");
+        Serial.println("[HEATER] ON");
+    } else if (line == "HEATER_OFF") {
+        heater_on = false;
+        digitalWrite(HEATER_PIN, LOW);
+        send_line("{\"type\":\"heater\",\"state\":\"off\"}");
+        Serial.println("[HEATER] OFF");
+    }
+}
+
+// ── 初期化 ────────────────────────────────────────────
+void setup() {
     Serial.begin(SERIAL_BAUD);
     delay(500);
 
     Serial.println("\n=== SAMDEMO: ESP32 + BME280 ===");
 
-    // BME280 を初期化（0x76 で失敗したら 0x77 も試す）
+#ifdef USE_BLUETOOTH
+    // ── Bluetooth SPP 起動 ──
+    BT.begin(BT_DEVICE_NAME);
+    Serial.println("[BT] Bluetooth SPP 起動");
+    Serial.println("[BT] デバイス名: " BT_DEVICE_NAME);
+    Serial.println("[BT] ---- PC 側の操作 ----");
+    Serial.println("[BT] 1. Windows の Bluetooth 設定を開く");
+    Serial.println("[BT]    設定 > Bluetooth とその他のデバイス > デバイスの追加");
+    Serial.println("[BT] 2. 一覧に SAMDEMO-ESP32 が出たらクリック");
+    Serial.println("[BT] 3. デバイスマネージャーで COM 番号を確認");
+    Serial.println("[BT]    ポート(COM と LPT) > Standard Serial over BT link");
+    Serial.println("[BT] 4. python server.py --port COM<番号> を実行");
+    Serial.println("[BT] ---------------------");
+#else
+    // ── USB Serial モード ──
+    Serial.println("[USB] USB Serial モード");
+    Serial.println("[USB] python server.py --port COM4");
+    Serial.println("[USB] http://localhost:8080 でグラフ確認");
+#endif
+
+    // ── BME280 初期化 ──
     bool ok = bme.begin(BME280_ADDR);
     if (!ok) {
-        Serial.println("[RETRY] 0x76 で見つからず、0x77 を試します...");
+        Serial.println("[BME280] 0x76 で未検出 → 0x77 を試します");
         ok = bme.begin(0x77);
     }
-
     if (!ok) {
-        Serial.println("[ERROR] BME280 が見つかりません！");
-        Serial.println("  確認ポイント:");
-        Serial.println("  1. 配線: SDA=GPIO21, SCL=GPIO22, VCC=3.3V");
-        Serial.println("  2. VCC に 5V を接続していないか");
-        Serial.println("  3. GND が ESP32 と共通になっているか");
-        // 見つかるまでループ（USB を刺し直して再起動で復帰）
+        Serial.println("[ERROR] BME280 が見つかりません！配線を確認してください。");
         while (true) {
             delay(2000);
-            Serial.println("[WAIT] BME280 を待機中...");
             if (bme.begin(BME280_ADDR) || bme.begin(0x77)) {
-                Serial.println("[OK] BME280 を検出しました！");
+                Serial.println("[BME280] 検出できました。");
                 break;
             }
         }
     }
+    // ── ヒーターピン初期化（必ず LOW から開始）──
+    pinMode(HEATER_PIN, OUTPUT);
+    digitalWrite(HEATER_PIN, LOW);
+    Serial.println("[HEATER] GPIO26 初期化 → OFF");
 
-    Serial.println("[OK] BME280 初期化完了");
-    Serial.println("[OK] 1秒ごとに JSON を送信します");
-    Serial.println();
-    Serial.println("─── PC での確認方法 ──────────────────────────────");
-    Serial.println("  シリアルモニタ: pio device monitor");
-    Serial.println("  グラフ表示:     python ../dashboard/server.py --port <COMポート>");
-    Serial.println("                  その後 index.html をブラウザで開く");
-    Serial.println("──────────────────────────────────────────────────");
+    Serial.println("[BME280] 初期化完了 → 送信開始");
     Serial.println();
 }
 
-// ─── メインループ ─────────────────────────────────
-void loop()
-{
+// ── メインループ ──────────────────────────────────────
+void loop() {
+    check_commands();  // PC からのコマンドを常時チェック
+
     uint32_t now = millis();
     if (now - last_send_ms < SEND_INTERVAL_MS) return;
     last_send_ms = now;
 
-    // センサー値を読み取る
-    float temp     = bme.readTemperature();           // 摂氏
-    float humidity = bme.readHumidity();              // %RH
-    float pressure = bme.readPressure() / 100.0F;    // hPa に変換
-    uint32_t ts    = now / 1000;                      // 秒単位のタイムスタンプ
+    float temp     = bme.readTemperature();
+    float humidity = bme.readHumidity();
+    float pressure = bme.readPressure() / 100.0F;
 
-    // 異常値チェック（センサー未接続や読み取りエラー）
     if (isnan(temp) || isnan(humidity) || isnan(pressure)) {
-        Serial.println("[WARN] センサー読み取りエラー。配線を確認してください。");
+        Serial.println("[WARN] センサー読み取りエラー");
         return;
     }
 
-    packet_count++;
+    char buf[160];
+    snprintf(buf, sizeof(buf),
+        "{\"type\":\"sensor\",\"temp\":%.1f,\"humidity\":%.1f,"
+        "\"pressure\":%.1f,\"heater\":%s,\"ts\":%lu}",
+        temp, humidity, pressure,
+        heater_on ? "true" : "false",
+        now / 1000UL);
 
-    // JSON で出力（dashboard の server.py がこのフォーマットを期待している）
-    Serial.printf(
-        "{\"type\":\"sensor\",\"temp\":%.1f,\"humidity\":%.1f,\"pressure\":%.1f,\"ts\":%lu}\n",
-        temp, humidity, pressure, ts
-    );
+    send_line(buf);
+    packet_count++;
 }

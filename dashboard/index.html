@@ -113,6 +113,27 @@
         .metric-card.humid  { border-top: 3px solid #4ecdc4; }
         .metric-card.press  { border-top: 3px solid #a78bfa; }
         .metric-card.count  { border-top: 3px solid #ffd93d; }
+        .metric-card.heater { border-top: 3px solid #ff9800; }
+
+        /* ヒーターボタン */
+        .heater-btn {
+            margin-top: 10px;
+            padding: 8px 24px;
+            border: none;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: #2a2d3a;
+            color: #aaa;
+            transition: background 0.2s, color 0.2s;
+        }
+        .heater-btn.on {
+            background: #ff6b00;
+            color: #fff;
+            box-shadow: 0 0 10px rgba(255,107,0,0.5);
+        }
+        .heater-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
         /* グラフパネル */
         .chart-grid {
@@ -220,6 +241,13 @@
         <div class="label">受信件数</div>
         <div class="value" id="val-count">0<span class="unit">件</span></div>
     </div>
+    <div class="metric-card heater">
+        <div class="label">ヒーター</div>
+        <div class="value" id="val-heater" style="font-size:1.5rem; color:#888;">OFF</div>
+        <button class="heater-btn" id="btn-heater" onclick="toggleHeater()" disabled>
+            接続待ち
+        </button>
+    </div>
 </div>
 
 <!-- グラフパネル -->
@@ -248,7 +276,7 @@
 // 設定
 // ============================================================
 const WS_URL = `ws://${window.location.hostname || 'localhost'}:8765`;
-const MAX_DATA_POINTS = 60;  // グラフに表示する最大データ点数
+const MAX_DATA_POINTS = 120;  // グラフに表示する最大データ点数
 const RECONNECT_INTERVAL_MS = 3000;  // 再接続間隔
 
 // ============================================================
@@ -270,7 +298,8 @@ const chartDefaults = {
         },
         y: {
             ticks: { color: "#888", font: { size: 10 } },
-            grid: { color: "#2a2d3a" }
+            grid: { color: "#2a2d3a" },
+            grace: "5%"
         }
     }
 };
@@ -335,6 +364,37 @@ const chartP = new Chart(ctxP, {
     },
     options: chartDefaults
 });
+
+// ============================================================
+// ヒーター制御
+// ============================================================
+let heaterState = false;
+
+function toggleHeater() {
+    heaterState = !heaterState;
+    const cmd = heaterState ? "heater_on" : "heater_off";
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ cmd: cmd }));
+        updateHeaterUI(heaterState);
+        addLog("log", `ヒーター ${heaterState ? "ON" : "OFF"} コマンド送信`);
+    }
+}
+
+function updateHeaterUI(state) {
+    const val = document.getElementById("val-heater");
+    const btn = document.getElementById("btn-heater");
+    if (state) {
+        val.textContent = "ON";
+        val.style.color = "#ff6b00";
+        btn.textContent = "OFF にする";
+        btn.classList.add("on");
+    } else {
+        val.textContent = "OFF";
+        val.style.color = "#888";
+        btn.textContent = "ON にする";
+        btn.classList.remove("on");
+    }
+}
 
 // ============================================================
 // データ更新
@@ -463,15 +523,23 @@ function connect() {
             switch (data.type) {
                 case "sensor":
                     updateMetrics(data);
-                    const demoTag = data.demo ? " [DEMO]" : "";
-                    addLog("sensor",
-                        `センサーデータ${demoTag}: temp=${data.temp}°C, ` +
-                        `humidity=${data.humidity}%, pressure=${data.pressure}hPa`
-                    );
+                    // ESP32 からのヒーター状態を同期
+                    if (data.heater !== undefined && data.heater !== heaterState) {
+                        heaterState = data.heater;
+                        updateHeaterUI(heaterState);
+                    }
+                    break;
+
+                case "heater":
+                    heaterState = (data.state === "on");
+                    updateHeaterUI(heaterState);
+                    addLog("log", `ヒーター状態確認: ${data.state.toUpperCase()}`);
                     break;
 
                 case "connected":
-                    addLog("sensor", data.message);
+                    addLog("sensor", data.message || "接続しました");
+                    document.getElementById("btn-heater").disabled = false;
+                    document.getElementById("btn-heater").textContent = "ON にする";
                     break;
 
                 case "log":

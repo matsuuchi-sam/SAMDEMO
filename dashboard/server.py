@@ -43,6 +43,9 @@ BAUD      = 115200
 # 接続中ブラウザクライアント
 clients: set = set()
 
+# シリアルポート参照（ブラウザ→ESP32 コマンド転送用）
+ser_port = None
+
 # ============================================================
 # HTTP サーバー（index.html を配信）
 # ============================================================
@@ -80,9 +83,22 @@ async def ws_handler(websocket):
     addr = websocket.remote_address
     print(f"[WS] ブラウザ接続: {addr}")
     try:
-        await websocket.send(json.dumps({"type": "connected"}))
-        async for _ in websocket:
-            pass  # ブラウザからのメッセージは無視
+        await websocket.send(json.dumps({"type": "connected", "message": "接続しました"}))
+        async for message in websocket:
+            # ブラウザからのコマンドを ESP32 へ転送
+            try:
+                data = json.loads(message)
+                cmd = data.get("cmd", "")
+                if cmd in ("heater_on", "heater_off"):
+                    esp_cmd = b"HEATER_ON\n" if cmd == "heater_on" else b"HEATER_OFF\n"
+                    if ser_port and ser_port.is_open:
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(None, ser_port.write, esp_cmd)
+                        print(f"[CMD] {cmd.upper()} → ESP32")
+                    else:
+                        print(f"[CMD] {cmd.upper()} （シリアル未接続・スキップ）")
+            except (json.JSONDecodeError, Exception):
+                pass
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:
@@ -101,6 +117,8 @@ async def serial_reader(port: str):
     print(f"[SERIAL] {port} に接続中...")
     try:
         ser = serial.Serial(port, BAUD, timeout=1.0)
+        global ser_port
+        ser_port = ser
         print(f"[SERIAL] 接続成功 ({BAUD}bps)")
         loop = asyncio.get_event_loop()
         while True:
