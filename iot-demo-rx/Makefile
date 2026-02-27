@@ -75,10 +75,11 @@ $(TARGET).elf: $(OBJS)
 # --- 書き込み（make flash PORT=COM3）---
 flash: build
 	@echo ""
-	@echo "=== GR-SAKURA への書き込み開始 (PORT=$(PORT)) ==="
-	@echo "注意: GR-SAKURA が $(PORT) に接続されていることを確認してください"
-	$(RFP_CLI) -d rx -t com -p $(PORT) -a $(TARGET).mot
+	@echo "=== GR-SAKURA への書き込み開始 ==="
+	@echo "注意: スライドスイッチ=WRITE, SW1(リセット)を押してからこのコマンドを実行してください"
+	$(RFP_CLI) -d RX63x -t usb -noverify-id -e -p $(TARGET).mot -v
 	@echo "=== 書き込み完了 ==="
+	@echo "次: スライドスイッチを RUN に戻して SW1 を押してください"
 
 # --- シリアルモニタ ---
 monitor:

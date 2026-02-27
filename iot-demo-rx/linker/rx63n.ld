@@ -13,7 +13,15 @@
 
 MEMORY
 {
-    ROM      (rx)  : ORIGIN = 0xFFE00000, LENGTH = 0x1FFFD4
+    /* GR-SAKURA (RX63N) 実測フラッシュマップ:
+     *   FFF00000-FFF7FFFF: 32KB block (512KB)
+     *   FFF80000-FFFF7FFF: 16KB block (448KB)
+     *   FFFF8000-FFFFFFFF:  4KB block  (32KB) ← 固定ベクタを含む
+     * 合計 1MB, ROM開始: 0xFFF00000
+     * 固定ベクタ: 0xFFFFFFD4 - 0xFFFFFFFF (44バイト)
+     * LENGTH = 0xFFFFFFD4 - 0xFFF00000 = 0x000FFFD4
+     */
+    ROM      (rx)  : ORIGIN = 0xFFF00000, LENGTH = 0x000FFFD4
     FVECTORS (rx)  : ORIGIN = 0xFFFFFFD4, LENGTH = 44
     RAM      (rwx) : ORIGIN = 0x00010000, LENGTH = 128K
 }
