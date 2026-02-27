@@ -43,8 +43,8 @@ TARGET   = firmware
 SRCS     = src/main.c \
            startup/startup.c
 
-# --- オブジェクトファイル（src/ 直下のみ、ディレクトリ構造を保持しない）---
-OBJS     = $(SRCS:.c=.o)
+# --- オブジェクトファイル（.S は _asm.o で区別して名前衝突を回避）---
+OBJS     = $(SRCS:.c=.o) startup/startup_asm.o
 
 # ==============================================================================
 # ターゲット定義
@@ -70,6 +70,15 @@ $(TARGET).elf: $(OBJS)
 
 %.o: %.c
 	@echo ">>> コンパイル: $<"
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+%.o: %.S
+	@echo ">>> アセンブル: $<"
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# startup.S は startup_asm.o として明示的にビルド（startup.c との名前衝突回避）
+startup/startup_asm.o: startup/startup.S
+	@echo ">>> アセンブル: $<"
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # --- 書き込み（make flash PORT=COM3）---
