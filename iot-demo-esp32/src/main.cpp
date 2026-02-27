@@ -41,6 +41,11 @@
 #define BME280_ADDR       0x76   // 多くのモジュール: 0x76、一部: 0x77
 #define HEATER_PIN        26     // IRLZ44N Gate 制御ピン
 
+// ── GR-SAKURA UART 受信設定 ───────────────────────────
+// GR-SAKURA Digital Pin 1 (TX/P20) → ESP32 GPIO16 (RX1)
+#define GR_RX_PIN  16
+#define GR_TX_PIN  17  // 将来用（現在未使用）
+
 // ── グローバル ─────────────────────────────────────────
 static Adafruit_BME280 bme;
 static uint32_t last_send_ms = 0;
@@ -115,6 +120,10 @@ void setup() {
     Serial.println("[USB] http://localhost:8080 でグラフ確認");
 #endif
 
+    // ── GR-SAKURA UART 受信初期化 ──
+    Serial1.begin(115200, SERIAL_8N1, GR_RX_PIN, GR_TX_PIN);
+    Serial.println("[GR-SAKURA] UART1 受信待機中 (GPIO16)");
+
     // ── BME280 初期化 ──
     bool ok = bme.begin(BME280_ADDR);
     if (!ok) {
@@ -142,6 +151,11 @@ void setup() {
 
 // ── メインループ ──────────────────────────────────────
 void loop() {
+    // ── GR-SAKURA からのデータを USB シリアルに転送 ──
+    while (Serial1.available()) {
+        Serial.write(Serial1.read());
+    }
+
     check_commands();  // PC からのコマンドを常時チェック
 
     uint32_t now = millis();

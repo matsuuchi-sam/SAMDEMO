@@ -2,77 +2,113 @@
  * @file startup.c
  * @brief RX63N スタートアップコード
  *
- * リセット後に CPU が最初に実行するコードです。
- * 以下の初期化を行ってから main() を呼び出します:
- *   1. スタックポインタの設定
- *   2. .data セクションの RAM へのコピー（ROM → RAM）
- *   3. .bss セクションのゼロクリア
- *   4. main() の呼び出し
+ * 【RX GCC シンボル変換規則】
+ *   C シンボル foo → ELF シンボル _foo
+ *   例: C の _data_start → ELF の __data_start
+ *   よって、リンカスクリプトで __data_start = . と定義したものを
+ *   C から参照するには extern uint32_t _data_start と宣言する。
  *
- * ベクタテーブル（固定ベクタ）もここで定義します。
- *
- * 参考: RX63N Group User's Manual: Hardware
- *   23. Exception Handling
+ * 【SP 設定の理由】
+ *   RX63N はリセット後 SP(R0) が不定値。
+ *   GCC が生成する C 関数プロローグは push 命令でスタックを使うため、
+ *   SP 設定前に C コードが実行されるとアドレスエラーが発生する。
+ *   → __start をグローバルアセンブリで実装し、
+ *     最初の命令で SP を設定してから C 関数を呼び出す。
  */
 
 #include <stdint.h>
 
 /* ===========================================================================
- * リンカスクリプトで定義されたシンボル
+ * リンカスクリプトシンボル参照
+ * C名(_xxx) → ELFシンボル(__xxx) に対応するため、アンダースコア1つで宣言
  * =========================================================================*/
-/* RX GCC は C シンボルに "_" を付加する: _data_start → ELF "__data_start" */
-extern uint32_t _data_start;    /* RAM 上の .data 開始アドレス */
-extern uint32_t _data_end;      /* RAM 上の .data 終了アドレス */
-extern uint32_t _data_rom_start;/* ROM 上の .data ロードアドレス */
-extern uint32_t _bss_start;     /* .bss 開始アドレス */
-extern uint32_t _bss_end;       /* .bss 終了アドレス */
-extern uint32_t _stack_end;     /* スタックトップ（高アドレス側）*/
+extern uint32_t _data_start;      /* ELF: __data_start   */
+extern uint32_t _data_end;        /* ELF: __data_end     */
+extern uint32_t _data_rom_start;  /* ELF: __data_rom_start */
+extern uint32_t _bss_start;       /* ELF: __bss_start    */
+extern uint32_t _bss_end;         /* ELF: __bss_end      */
+extern uint32_t _stack_end;       /* ELF: __stack_end    */
 
-/* ===========================================================================
- * 関数プロトタイプ
- * =========================================================================*/
 extern int main(void);
-
-void _start(void) __attribute__((section(".text.startup")));
-void default_handler(void) __attribute__((weak));
 
 /* ===========================================================================
  * デフォルト割り込みハンドラ
- * 未定義の割り込みが発生した場合にここに飛んでくる（無限ループ）
- * デバッグ時はここでブレークポイントを張ると捕捉できる
  * =========================================================================*/
+void default_handler(void) __attribute__((weak));
 void default_handler(void)
 {
-    /* 未処理割り込みのキャッチ用 */
-    while (1)
+    while (1);
+}
+
+void INT_Excep_BusFault(void)       __attribute__((weak, alias("default_handler")));
+void INT_Excep_AddressFault(void)   __attribute__((weak, alias("default_handler")));
+void INT_Excep_IllegalInst(void)    __attribute__((weak, alias("default_handler")));
+void INT_Excep_PrivilegedInst(void) __attribute__((weak, alias("default_handler")));
+void INT_Excep_SCI0_RXI0(void)     __attribute__((weak, alias("default_handler")));
+void INT_Excep_SCI0_TXI0(void)     __attribute__((weak, alias("default_handler")));
+void INT_Excep_SCI0_TEI0(void)     __attribute__((weak, alias("default_handler")));
+
+/* ===========================================================================
+ * C 言語の初期化処理（SP 設定後に呼ばれる）
+ *
+ * アセンブリ __start から BSR で呼び出される。
+ * ELF シンボル: _startup_c_init
+ * =========================================================================*/
+static void startup_c_init(void) __attribute__((used, noinline));
+static void startup_c_init(void)
+{
+    /* .data: ROM → RAM コピー */
+    uint32_t *src = &_data_rom_start;
+    uint32_t *dst = &_data_start;
+    while (dst < &_data_end)
     {
-        /* [DEBUG] ここに到達した場合は未定義の割り込みが発生している */
-        /* デバッガでスタックトレースを確認すること */
+        *dst++ = *src++;
     }
+
+    /* .bss: ゼロクリア */
+    dst = &_bss_start;
+    while (dst < &_bss_end)
+    {
+        *dst++ = 0u;
+    }
+
+    /* main 呼び出し */
+    main();
+
+    /* main が返ってきた場合（通常は到達しない） */
+    while (1);
 }
 
 /* ===========================================================================
- * 各割り込みハンドラの weak シンボル定義
- * ユーザーが自前のハンドラを定義した場合はそちらが優先される
+ * アセンブリレベルのスタートアップ
+ *
+ * ELF シンボル __start として定義（リンカスクリプトの ENTRY(__start) に対応）
+ * C から参照する場合は extern void _start(void) と宣言する。
+ *
+ * 処理順:
+ *   1. mov.l #__stack_end, r0  → SP(R0) を設定
+ *   2. bsr.a _startup_c_init   → C初期化関数（ELFシンボル: _startup_c_init）
+ *   3. bra.b 9b                → 安全ガード（到達しない）
  * =========================================================================*/
-void INT_Excep_BusFault(void)      __attribute__((weak, alias("default_handler")));
-void INT_Excep_AddressFault(void)  __attribute__((weak, alias("default_handler")));
-void INT_Excep_IllegalInst(void)   __attribute__((weak, alias("default_handler")));
-void INT_Excep_PrivilegedInst(void) __attribute__((weak, alias("default_handler")));
-
-/* UART (SCI0) 割り込み - Phase 3 以降で実装予定 */
-void INT_Excep_SCI0_RXI0(void) __attribute__((weak, alias("default_handler")));
-void INT_Excep_SCI0_TXI0(void) __attribute__((weak, alias("default_handler")));
-void INT_Excep_SCI0_TEI0(void) __attribute__((weak, alias("default_handler")));
+__asm__(
+    "   .section .text.startup              \n"
+    "   .global  __start                    \n"
+    "   .type    __start, @function         \n"
+    "__start:                               \n"
+    "   mov.l   #__stack_end, r0            \n"  /* SP = スタックトップ        */
+    "   bsr.a   _startup_c_init             \n"  /* C初期化（ELF: _startup_c_init）*/
+    "9: bra.b   9b                          \n"  /* 到達しない                 */
+);
 
 /* ===========================================================================
  * 固定ベクタテーブル
- * RX63N の固定ベクタは 0xFFFFFFD4 から始まる
- * (リンカスクリプトの .fvectors セクションに配置)
+ * RX63N 固定ベクタ: 0xFFFFFFD4 - 0xFFFFFFFF (11エントリ, 44バイト)
  * =========================================================================*/
 typedef void (*VectorFunc)(void);
 
-/* 固定ベクタテーブル（サイズ: 11エントリ × 4バイト = 44バイト）*/
+/* アセンブリで定義した __start を C から参照 */
+extern void _start(void);  /* C名 _start → ELF __start */
+
 const VectorFunc fixed_vectors[] __attribute__((section(".fvectors"))) = {
     default_handler,         /* 0xFFFFFFD4: 予約 */
     default_handler,         /* 0xFFFFFFD8: 予約 */
@@ -86,60 +122,3 @@ const VectorFunc fixed_vectors[] __attribute__((section(".fvectors"))) = {
     INT_Excep_AddressFault,  /* 0xFFFFFFF8: アドレスエラー例外 */
     _start,                  /* 0xFFFFFFFC: リセットベクタ */
 };
-
-/* ===========================================================================
- * スタートアップ処理（リセット後の最初の処理）
- * =========================================================================*/
-void _start(void)
-{
-    /* ----------------------------------------------------------------
-     * 1. スタックポインタを設定
-     * RX アーキテクチャは通常 C ランタイムで SP が設定されるが、
-     * 念のため明示的に設定する
-     * ---------------------------------------------------------------- */
-    /* RX63N の SP は ISP (Interrupt Stack Pointer) と USP (User SP) がある */
-    /* ここではシンプルに1つのスタックを使用 */
-
-    /* ----------------------------------------------------------------
-     * 2. .data セクションを ROM から RAM へコピー
-     * 初期値を持つグローバル変数の初期化
-     * ---------------------------------------------------------------- */
-    uint32_t *src = &_data_rom_start;
-    uint32_t *dst = &_data_start;
-
-    while (dst < &_data_end)
-    {
-        *dst++ = *src++;
-    }
-
-    /* ----------------------------------------------------------------
-     * 3. .bss セクションをゼロクリア
-     * 初期値なしのグローバル変数を 0 で初期化
-     * ---------------------------------------------------------------- */
-    dst = &_bss_start;
-    while (dst < &_bss_end)
-    {
-        *dst++ = 0u;
-    }
-
-    /*
-     * [EXTEND: FREERTOS]
-     * FreeRTOS 導入時はここで FreeRTOS の初期化を行う:
-     *   xTaskCreate(main_task, "main", 512, NULL, 1, NULL);
-     *   vTaskStartScheduler();
-     * この場合、main() の呼び出しは不要になる
-     */
-
-    /* ----------------------------------------------------------------
-     * 4. main() を呼び出す
-     * ---------------------------------------------------------------- */
-    main();
-
-    /* ----------------------------------------------------------------
-     * 5. main() が返ってきた場合（通常は到達しない）
-     * ---------------------------------------------------------------- */
-    while (1)
-    {
-        /* 何もしないで待機 */
-    }
-}
