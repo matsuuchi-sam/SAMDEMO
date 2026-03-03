@@ -1,11 +1,12 @@
 # ==============================================================================
-# SAMDEMO - GR-SAKURA (RX63N) ファームウェア Makefile
+# GR-SAKURA (RX63N) LED Lチカ テスト Makefile
+# e2studio 生成コード (generate/) をベースに構築
 # ==============================================================================
 # 使い方:
 #   make build            ビルドのみ
-#   make flash PORT=COM3  ビルド後に書き込み
-#   make monitor PORT=COM3 シリアルモニタ起動
+#   make flash PORT=COM3  ビルド後に書き込み（ユーザー確認必須）
 #   make clean            中間ファイルを削除
+#   make disasm           逆アセンブル（デバッグ用）
 # ==============================================================================
 
 # --- ツールチェーンパス ---
@@ -20,20 +21,21 @@ SIZE     = "$(GCC_DIR)/rx-elf-size"
 RFP_CLI  = "$(RFP_DIR)/rfp-cli"
 
 # --- コンパイルフラグ ---
+# -I./generate : iodefine.h / interrupt_handlers.h を参照
 CFLAGS   = -mcpu=rx600 \
            -O2 \
            -Wall \
            -Wextra \
            -ffunction-sections \
            -fdata-sections \
-           -I./src
+           -I./generate
 
 # --- リンクフラグ ---
 LDFLAGS  = -T ./linker/rx63n.ld \
            -Wl,-Map=$(TARGET).map \
            -nostartfiles
 
-# --- 書き込みポート（環境変数 PORT または make 引数で上書き可能）---
+# --- 書き込みポート ---
 PORT    ?= COM3
 
 # --- ターゲット名 ---
@@ -41,16 +43,18 @@ TARGET   = firmware
 
 # --- ソースファイル ---
 SRCS     = src/main.c \
-           startup/startup.c
+           generate/hwinit.c \
+           generate/vects.c \
+           generate/inthandler.c
 
-# --- オブジェクトファイル（.S は _asm.o で区別して名前衝突を回避）---
-OBJS     = $(SRCS:.c=.o) startup/startup_asm.o
+# --- オブジェクトファイル ---
+OBJS     = $(SRCS:.c=.o) generate/start.o
 
 # ==============================================================================
 # ターゲット定義
 # ==============================================================================
 
-.PHONY: all build flash monitor clean size disasm
+.PHONY: all build flash clean size disasm
 
 all: build
 
@@ -68,16 +72,13 @@ $(TARGET).elf: $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 	@echo ">>> ELF 生成: $@"
 
+# C ソースのコンパイル
 %.o: %.c
 	@echo ">>> コンパイル: $<"
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-%.o: %.S
-	@echo ">>> アセンブル: $<"
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-# startup.S は startup_asm.o として明示的にビルド（startup.c との名前衝突回避）
-startup/startup_asm.o: startup/startup.S
+# アセンブラ: generate/start.S → generate/start.o
+generate/start.o: generate/start.S
 	@echo ">>> アセンブル: $<"
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -85,15 +86,10 @@ startup/startup_asm.o: startup/startup.S
 flash: build
 	@echo ""
 	@echo "=== GR-SAKURA への書き込み開始 ==="
-	@echo "注意: スライドスイッチ=WRITE, SW1(リセット)を押してからこのコマンドを実行してください"
-	$(RFP_CLI) -d RX63x -t usb -noverify-id -e -p $(TARGET).mot -v
+	@echo "注意: スライドスイッチ=WRITE, SW1(リセット)を押してから実行してください"
+	$(RFP_CLI) -d RX63x -t usb -noverify-id -nocheck-range -e -p $(TARGET).mot -v
 	@echo "=== 書き込み完了 ==="
 	@echo "次: スライドスイッチを RUN に戻して SW1 を押してください"
-
-# --- シリアルモニタ ---
-monitor:
-	@echo "=== シリアルモニタ起動 (PORT=$(PORT), 115200bps) ==="
-	python ../tools/monitor.py $(PORT) 115200
 
 # --- サイズ表示 ---
 size: $(TARGET).elf
@@ -106,9 +102,6 @@ disasm: $(TARGET).elf
 
 # --- クリーン ---
 clean:
-	rm -f src/*.o startup/*.o
+	rm -f src/*.o generate/*.o
 	rm -f $(TARGET).elf $(TARGET).mot $(TARGET).map $(TARGET).asm
 	@echo "=== クリーン完了 ==="
-
-# --- 依存関係（ヘッダ変更時の再ビルド）---
--include $(OBJS:.o=.d)

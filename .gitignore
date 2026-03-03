@@ -2,6 +2,7 @@
 iot-demo-rx/*.o
 iot-demo-rx/src/*.o
 iot-demo-rx/startup/*.o
+iot-demo-rx/generate/*.o
 iot-demo-rx/*.elf
 iot-demo-rx/*.mot
 iot-demo-rx/*.map
