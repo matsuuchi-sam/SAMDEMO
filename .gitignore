@@ -8,8 +8,19 @@ iot-demo-rx/*.mot
 iot-demo-rx/*.map
 iot-demo-rx/*.asm
 
+# ビルド生成物（RX63N FreeRTOS版）
+iot-demo-rx-test/src/*.o
+iot-demo-rx-test/generate/*.o
+iot-demo-rx-test/freertos/*.o
+iot-demo-rx-test/freertos/portable/**/*.o
+iot-demo-rx-test/*.elf
+iot-demo-rx-test/*.mot
+iot-demo-rx-test/*.map
+iot-demo-rx-test/*.asm
+
 # PlatformIO ビルドキャッシュ（ESP32）
 iot-demo-esp32/.pio/
+iot-demo-esp32-test/.pio/
 
 # Python キャッシュ
 __pycache__/

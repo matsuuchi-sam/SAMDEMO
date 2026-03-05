@@ -31,6 +31,7 @@ except ImportError:
     SERIAL_AVAILABLE = False
 
 from websockets.asyncio.server import serve
+from websockets.asyncio.client import connect as ws_connect
 import websockets.exceptions
 
 # ============================================================
@@ -90,13 +91,31 @@ async def ws_handler(websocket):
                 data = json.loads(message)
                 cmd = data.get("cmd", "")
                 if cmd in ("heater_on", "heater_off"):
-                    esp_cmd = b"HEATER_ON\n" if cmd == "heater_on" else b"HEATER_OFF\n"
+                    uart_cmd = b"HEATER_ON\n" if cmd == "heater_on" else b"HEATER_OFF\n"
                     if ser_port and ser_port.is_open:
                         loop = asyncio.get_event_loop()
-                        await loop.run_in_executor(None, ser_port.write, esp_cmd)
-                        print(f"[CMD] {cmd.upper()} → ESP32")
+                        await loop.run_in_executor(None, ser_port.write, uart_cmd)
+                        print(f"[CMD] {cmd.upper()} → RX63N")
                     else:
                         print(f"[CMD] {cmd.upper()} （シリアル未接続・スキップ）")
+                elif cmd == "set_target":
+                    val = data.get("value", 2500)
+                    uart_cmd = f"SET_TARGET {val}\n".encode()
+                    if ser_port and ser_port.is_open:
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(None, ser_port.write, uart_cmd)
+                        print(f"[CMD] SET_TARGET {val} → RX63N")
+                    else:
+                        print(f"[CMD] SET_TARGET {val} （シリアル未接続・スキップ）")
+                elif cmd == "set_pid":
+                    kp = data.get("kp", 500)
+                    ki = data.get("ki", 10)
+                    kd = data.get("kd", 100)
+                    uart_cmd = f"SET_PID {kp} {ki} {kd}\n".encode()
+                    if ser_port and ser_port.is_open:
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(None, ser_port.write, uart_cmd)
+                        print(f"[CMD] SET_PID {kp} {ki} {kd} → RX63N")
             except (json.JSONDecodeError, Exception):
                 pass
     except websockets.exceptions.ConnectionClosed:
@@ -147,6 +166,43 @@ async def serial_reader(port: str):
         await demo_generator()
 
 # ============================================================
+# WiFi モード（ESP32 WebSocket に直接接続）
+# ============================================================
+async def wifi_reader(esp32_url: str):
+    """ESP32 の WebSocket に接続してデータを中継する"""
+    print(f"[WIFI] ESP32 WebSocket に接続中: {esp32_url}")
+    while True:
+        try:
+            async with ws_connect(esp32_url) as esp_ws:
+                print(f"[WIFI] ESP32 に接続成功")
+                # ブラウザコマンドを ESP32 に転送するためのタスク
+                async def forward_commands():
+                    """ブラウザからのコマンドを ESP32 に転送（将来拡張用）"""
+                    await asyncio.Future()  # 無限待ち
+
+                fwd_task = asyncio.create_task(forward_commands())
+                try:
+                    async for message in esp_ws:
+                        try:
+                            data = json.loads(message)
+                            data.setdefault("received_at", time.time())
+                            await broadcast(data)
+                            if data.get("type") == "sensor":
+                                t = data.get("temp", "?")
+                                h = data.get("humi", "?")
+                                print(f"[WIFI] T={t} H={h}")
+                        except json.JSONDecodeError:
+                            await broadcast({"type": "log", "message": message,
+                                             "timestamp": time.time()})
+                except websockets.exceptions.ConnectionClosed:
+                    pass
+                finally:
+                    fwd_task.cancel()
+        except (OSError, websockets.exceptions.WebSocketException) as e:
+            print(f"[WIFI] 接続エラー: {e} — 3秒後に再接続")
+            await asyncio.sleep(3.0)
+
+# ============================================================
 # デモモード（ESP32 なしで動作確認）
 # ============================================================
 async def demo_generator():
@@ -188,15 +244,20 @@ async def main(args):
     print(f"  ★ ブラウザで開く → http://localhost:{HTTP_PORT}")
     print(f"  　 同一LAN内から → http://{my_ip}:{HTTP_PORT}")
     print()
-    if args.port:
+    if args.wifi:
+        print(f"  [モード] WiFi ({args.wifi})")
+    elif args.port:
         print(f"  [モード] シリアル ({args.port})")
     else:
-        print(f"  [モード] デモ（--port COM4 で実機接続）")
+        print(f"  [モード] デモ（--port COM4 / --wifi 192.168.4.1 で実機接続）")
     print("=" * 50)
     print()
 
     # データソース起動
-    if args.port:
+    if args.wifi:
+        esp_url = args.wifi if args.wifi.startswith("ws") else f"ws://{args.wifi}/ws"
+        data_task = asyncio.create_task(wifi_reader(esp_url))
+    elif args.port:
         data_task = asyncio.create_task(serial_reader(args.port))
     else:
         data_task = asyncio.create_task(demo_generator())
@@ -230,6 +291,7 @@ def _local_ip() -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SAMDEMO ダッシュボード")
     parser.add_argument("--port", "-p", help="COM ポート (例: COM4)")
+    parser.add_argument("--wifi", "-w", help="ESP32 WiFi IP (例: 192.168.4.1)")
     args = parser.parse_args()
     try:
         asyncio.run(main(args))
