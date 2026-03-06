@@ -28,7 +28,8 @@ CFLAGS   = -mcpu=rx600 \
            -Wextra \
            -ffunction-sections \
            -fdata-sections \
-           -I./generate
+           -I./generate \
+           -I./src
 
 # --- リンクフラグ ---
 LDFLAGS  = -T ./linker/rx63n.ld \
@@ -43,6 +44,11 @@ TARGET   = firmware
 
 # --- ソースファイル ---
 SRCS     = src/main.c \
+           src/sci0_uart.c \
+           src/cmt_timer.c \
+           src/json_builder.c \
+           src/cmd_parser.c \
+           src/pid_ctrl.c \
            generate/hwinit.c \
            generate/vects.c \
            generate/inthandler.c

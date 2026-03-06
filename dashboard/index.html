@@ -216,7 +216,7 @@
 <body>
 
 <header>
-    <h1>SAMDEMO <span>ESP32 + BME280 センサーダッシュボード</span></h1>
+    <h1>SAMDEMO <span>IoT 温度制御ダッシュボード</span></h1>
     <div id="status-badge">
         <div id="status-dot" class="connecting"></div>
         <span id="status-text">接続中...</span>
@@ -247,6 +247,23 @@
         <button class="heater-btn" id="btn-heater" onclick="toggleHeater()" disabled>
             接続待ち
         </button>
+    </div>
+</div>
+
+<!-- 目標温度スライダー -->
+<div class="metrics-grid" style="margin-bottom:24px;">
+    <div class="metric-card" style="border-top: 3px solid #ff6b6b; grid-column: span 2;">
+        <div class="label">目標温度 (PID 制御)</div>
+        <div style="display:flex; align-items:center; gap:16px; margin-top:8px;">
+            <input type="range" id="target-slider" min="1500" max="5000" value="2500" step="50"
+                   style="flex:1; accent-color:#ff6b6b;" oninput="updateTargetLabel(this.value)">
+            <span id="target-label" style="font-size:1.5rem; font-weight:700; color:#fff; min-width:80px;">25.00°C</span>
+            <button class="heater-btn" id="btn-set-target" onclick="sendTarget()" disabled>設定</button>
+        </div>
+    </div>
+    <div class="metric-card" style="border-top: 3px solid #4ecdc4;">
+        <div class="label">PID 出力</div>
+        <div class="value" id="val-pid" style="font-size:1.5rem;">--<span class="unit">%</span></div>
     </div>
 </div>
 
@@ -380,6 +397,18 @@ function toggleHeater() {
     }
 }
 
+function updateTargetLabel(val) {
+    document.getElementById("target-label").textContent = (val / 100).toFixed(2) + "°C";
+}
+
+function sendTarget() {
+    const val = document.getElementById("target-slider").value;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ cmd: "set_target", value: parseInt(val) }));
+        addLog("log", `目標温度設定: ${(val / 100).toFixed(2)}°C (${val})`);
+    }
+}
+
 function updateHeaterUI(state) {
     const val = document.getElementById("val-heater");
     const btn = document.getElementById("btn-heater");
@@ -421,29 +450,43 @@ function pushDataPoint(chart, label, ...values) {
 function updateMetrics(data) {
     dataCount++;
 
+    // RX63N JSON 互換: temp/hum は小数、press は Pa (整数)
+    const temp = data.temp;
+    const hum = data.hum !== undefined ? data.hum : data.humidity;
+    const press = data.press !== undefined ? data.press / 100 : data.pressure;
+
     // カード更新
-    if (data.temp !== undefined) {
+    if (temp !== undefined) {
         document.getElementById("val-temp").innerHTML =
-            `${data.temp.toFixed(1)}<span class="unit">°C</span>`;
+            `${temp.toFixed(1)}<span class="unit">°C</span>`;
     }
-    if (data.humidity !== undefined) {
+    if (hum !== undefined) {
         document.getElementById("val-humidity").innerHTML =
-            `${data.humidity.toFixed(1)}<span class="unit">%</span>`;
+            `${hum.toFixed(1)}<span class="unit">%</span>`;
     }
-    if (data.pressure !== undefined) {
+    if (press !== undefined) {
         document.getElementById("val-pressure").innerHTML =
-            `${data.pressure.toFixed(1)}<span class="unit">hPa</span>`;
+            `${press.toFixed(1)}<span class="unit">hPa</span>`;
     }
     document.getElementById("val-count").innerHTML =
         `${dataCount}<span class="unit">件</span>`;
 
+    // ヒーター状態 (RX63N: 0/1 整数)
+    if (data.heater !== undefined) {
+        const h = (data.heater === true || data.heater === 1);
+        if (h !== heaterState) {
+            heaterState = h;
+            updateHeaterUI(h);
+        }
+    }
+
     // グラフ更新
     const label = formatTime(data.ts || data.received_at || Date.now() / 1000);
-    if (data.temp !== undefined && data.humidity !== undefined) {
-        pushDataPoint(chartTH, label, data.temp, data.humidity);
+    if (temp !== undefined && hum !== undefined) {
+        pushDataPoint(chartTH, label, temp, hum);
     }
-    if (data.pressure !== undefined) {
-        pushDataPoint(chartP, label, data.pressure);
+    if (press !== undefined) {
+        pushDataPoint(chartP, label, press);
     }
 }
 
@@ -540,6 +583,7 @@ function connect() {
                     addLog("sensor", data.message || "接続しました");
                     document.getElementById("btn-heater").disabled = false;
                     document.getElementById("btn-heater").textContent = "ON にする";
+                    document.getElementById("btn-set-target").disabled = false;
                     break;
 
                 case "log":

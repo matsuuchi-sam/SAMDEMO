@@ -16,6 +16,7 @@ typedef void (*fp) (void);
 extern void PowerON_Reset (void);
 extern void stack (void);
 
+
 #define FVECT_SECT          __attribute__ ((section (".fvectors")))
 
 const void *HardwareVectors[] FVECT_SECT  = {
@@ -151,9 +152,9 @@ const fp RelocatableVectors[] RVECT_SECT  = {
     (fp)0,
 //;0x0068  Reserved
     (fp)0,
-//;0x006C  ICU_SWINT                                                    
-    (fp)INT_Excep_ICU_SWINT,                
-//;0x0070  CMT0_CMI0                                    
+//;0x006C  ICU_SWINT
+    (fp)INT_Excep_ICU_SWINT,
+//;0x0070  CMT0_CMI0
     (fp)INT_Excep_CMT0_CMI0,
 //;0x0074  CMT1_CMI1
     (fp)INT_Excep_CMT1_CMI1,

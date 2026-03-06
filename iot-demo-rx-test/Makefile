@@ -38,22 +38,25 @@ CFLAGS   = -mcpu=rx600 \
            $(INCLUDES)
 
 # --- リンクフラグ ---
-LDFLAGS  = -T ./linker/rx63n_freertos.ld \
+LDFLAGS  = -T ../iot-demo-rx/linker/rx63n.ld \
            -Wl,-Map=$(TARGET).map \
-           -Wl,--gc-sections \
            -nostartfiles
 
 # --- アプリケーションソース ---
-APP_SRCS = src/main.c \
-           src/sci2_uart.c \
-           src/json_parser.c \
-           src/json_builder.c \
-           src/pid_ctrl.c \
-           src/uart_task.c \
-           src/pid_task.c \
-           src/anomaly_task.c \
-           src/wdt_task.c \
-           src/status_task.c
+# LED点滅テスト用: 最小構成
+APP_SRCS = src/main.c
+
+# フル構成（FreeRTOS復帰時にコメント解除）
+#APP_SRCS = src/main.c \
+#           src/sci2_uart.c \
+#           src/json_parser.c \
+#           src/json_builder.c \
+#           src/pid_ctrl.c \
+#           src/uart_task.c \
+#           src/pid_task.c \
+#           src/anomaly_task.c \
+#           src/wdt_task.c \
+#           src/status_task.c
 
 # --- 生成コード ---
 GEN_SRCS = generate/hwinit.c \
@@ -61,12 +64,14 @@ GEN_SRCS = generate/hwinit.c \
            generate/inthandler.c
 
 # --- FreeRTOS カーネル ---
-RTOS_SRCS = freertos/tasks.c \
-            freertos/queue.c \
-            freertos/list.c \
-            freertos/timers.c \
-            freertos/portable/GCC/RX600/port.c \
-            freertos/portable/MemMang/heap_4.c
+# LED点滅テスト用: 無効化
+#RTOS_SRCS = freertos/tasks.c \
+#            freertos/queue.c \
+#            freertos/list.c \
+#            freertos/timers.c \
+#            freertos/portable/GCC/RX600/port.c \
+#            freertos/portable/MemMang/heap_4.c
+RTOS_SRCS =
 
 # --- 全ソース ---
 SRCS     = $(APP_SRCS) $(GEN_SRCS) $(RTOS_SRCS)

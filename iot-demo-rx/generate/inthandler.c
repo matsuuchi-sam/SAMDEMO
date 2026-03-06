@@ -12,6 +12,7 @@
 /************************************************************************/
 
 #include "interrupt_handlers.h"
+#include "../src/cmt_timer.h"
 
 /* INT_Exception(Supervisor Instruction)*/
 void INT_Excep_SuperVisorInst(void){/* brk(); */}
@@ -47,7 +48,7 @@ void INT_Excep_FCU_FRDYI(void){ }
 void INT_Excep_ICU_SWINT(void){ }
 
 /* CMT0 CMI0*/
-void INT_Excep_CMT0_CMI0(void){ }
+void INT_Excep_CMT0_CMI0(void){ cmt0_isr(); }
 
 /* CMT1 CMI1*/
 void INT_Excep_CMT1_CMI1(void){ }

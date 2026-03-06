@@ -95,15 +95,7 @@ SECTIONS
 		. = ALIGN(2);
 		_mdata = .;
 	} > ROM
-	.ustack 0x200: AT(0x200)
-	{
-		_ustack = .;
-	} > RAM
-	.istack 0x100: AT(0x100)
-	{
-		_istack = .;
-	} > RAM
-	.data 0x204: AT(_mdata)
+	.data 0x100: AT(_mdata)
 	{
 		_data = .;
 		*(.data)
@@ -127,4 +119,15 @@ SECTIONS
 		. = ALIGN(128);
 		_end = .;
 	} > RAM AT>RAM
+	/* スタック: RAM 末尾に配置 (下方向に伸びる) */
+	/* ISP (割り込みスタック): 512 バイト */
+	.istack 0x1FC00: AT(0x1FC00)
+	{
+		_istack = .;
+	} > RAM
+	/* USP (ユーザースタック): 4096 バイト */
+	.ustack 0x20000: AT(0x20000)
+	{
+		_ustack = .;
+	} > RAM
 }

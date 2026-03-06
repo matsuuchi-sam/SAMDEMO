@@ -13,11 +13,6 @@
 
 #include "interrupt_handlers.h"
 
-/* FreeRTOS tick ISR and software interrupt ISR */
-extern void vTickISR(void);
-extern void vSoftwareInterruptISR(void);
-/* SCI2 RXI handler */
-extern void sci2_rxi_isr(void);
 
 /* INT_Exception(Supervisor Instruction)*/
 void INT_Excep_SuperVisorInst(void){/* brk(); */}
@@ -49,11 +44,11 @@ void INT_Excep_FCU_FIFERR(void){ }
 /* FCU FRDYI*/
 void INT_Excep_FCU_FRDYI(void){ }
 
-/* ICU SWINT → FreeRTOS コンテキストスイッチ */
-void INT_Excep_ICU_SWINT(void){ vSoftwareInterruptISR(); }
+/* ICU SWINT → FreeRTOS (ベクタテーブルで直接配置) */
+void INT_Excep_ICU_SWINT(void){ }
 
-/* CMT0 CMI0 → FreeRTOS tick */
-void INT_Excep_CMT0_CMI0(void){ vTickISR(); }
+/* CMT0 CMI0 → FreeRTOS (ベクタテーブルで直接配置) */
+void INT_Excep_CMT0_CMI0(void){ }
 
 /* CMT1 CMI1*/
 void INT_Excep_CMT1_CMI1(void){ }
@@ -556,8 +551,8 @@ void INT_Excep_SCI1_TXI1(void){ }
 /* SCI1 TEI1*/
 void INT_Excep_SCI1_TEI1(void){ }
 
-/* SCI2 RXI2 → UART受信割り込み */
-void INT_Excep_SCI2_RXI2(void){ sci2_rxi_isr(); }
+/* SCI2 RXI2 */
+void INT_Excep_SCI2_RXI2(void){ }
 
 /* SCI2 TXI2*/
 void INT_Excep_SCI2_TXI2(void){ }

@@ -4,15 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SAMDEMO - 温度制御</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="/chart.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
 --bg:#12141a;--panel:#1a1d25;--border:#2a2e38;--txt:#c8ccd4;--dim:#5a6070;
 --amber:#f0a030;--amber-dim:#805818;--red:#e84040;--green:#40c060;--cyan:#40b8d0;
---blue:#4080e0;--font:'JetBrains Mono',monospace
+--font:'JetBrains Mono','Consolas','Courier New',monospace
 }
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
 body{background:var(--bg);color:var(--txt);font:13px/1.5 var(--font);min-height:100vh}
 .hdr{background:var(--panel);border-bottom:2px solid var(--amber-dim);padding:10px 16px;display:flex;align-items:center;gap:12px}
 .hdr h1{font-size:15px;color:var(--amber);letter-spacing:2px;text-transform:uppercase}
@@ -20,10 +19,8 @@ body{background:var(--bg);color:var(--txt);font:13px/1.5 var(--font);min-height:
 .hdr .dot.on{background:var(--green);animation:none}
 .hdr .status{margin-left:auto;font-size:11px;color:var(--dim)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px;max-width:900px;margin:0 auto}
-@media(max-width:600px){.grid{grid-template-columns:1fr}}
+.main{max-width:900px;margin:0 auto;padding:10px;display:flex;flex-direction:column;gap:10px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:12px}
-.card.span{grid-column:1/-1}
 .card h2{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:6px}
 .reading{display:flex;align-items:baseline;gap:6px;margin:6px 0}
 .reading .val{font-size:28px;font-weight:700;color:var(--amber)}
@@ -33,6 +30,8 @@ body{background:var(--bg);color:var(--txt);font:13px/1.5 var(--font);min-height:
 .bar-wrap{background:#0d0f14;border:1px solid var(--border);border-radius:2px;height:22px;position:relative;overflow:hidden;margin:4px 0}
 .bar-fill{height:100%;background:linear-gradient(90deg,var(--amber-dim),var(--amber));transition:width .5s;border-radius:1px}
 .bar-label{position:absolute;right:6px;top:2px;font-size:11px;color:var(--txt)}
+.ctrl-row{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.ctrl-row .card{flex:1;min-width:200px}
 .row{display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap}
 .row label{font-size:11px;color:var(--dim);min-width:28px}
 .inp{background:#0d0f14;border:1px solid var(--border);color:var(--amber);font:13px var(--font);padding:4px 8px;width:72px;border-radius:2px;text-align:right}
@@ -42,15 +41,11 @@ body{background:var(--bg);color:var(--txt);font:13px/1.5 var(--font);min-height:
 .btn:active{transform:scale(.97)}
 .btn.amber{background:var(--amber-dim);color:#fff;border-color:var(--amber)}
 .btn.amber:hover{background:var(--amber)}
-.btn.red{background:#5a1818;color:#fcc;border-color:var(--red)}
+.btn.red{background:#5a1818;color:#fcc;border-color:var(--red);flex:1;padding:10px;font-size:13px;font-weight:700}
 .btn.red:hover{background:var(--red);color:#fff}
-.btn.green{background:#184a28;color:#cfc;border-color:var(--green)}
+.btn.green{background:#184a28;color:#cfc;border-color:var(--green);flex:1;padding:10px;font-size:13px;font-weight:700}
 .btn.green:hover{background:var(--green);color:#fff}
 .estop-row{display:flex;gap:8px;margin-top:8px}
-.estop-row .btn{flex:1;padding:10px;font-size:13px;font-weight:700}
-.badge{display:inline-block;padding:2px 10px;border-radius:2px;font-size:11px;font-weight:600}
-.badge.ok{background:#1a3a22;color:var(--green);border:1px solid #2a5a38}
-.badge.err{background:#3a1a1a;color:var(--red);border:1px solid #5a2a2a;animation:pulse 1.5s infinite}
 .chart-wrap{height:180px;position:relative}
 canvas{width:100%!important}
 </style>
@@ -61,39 +56,29 @@ canvas{width:100%!important}
 <h1>SAMDEMO 温度制御</h1>
 <span class="status" id="wsStatus">切断中</span>
 </div>
-<div class="grid">
+<div class="main">
 
-<div class="card span">
+<div class="card">
 <h2>センサーデータ</h2>
 <div class="readings-row">
 <div class="reading"><span class="val" id="vTemp">--</span><span class="unit">℃ 温度</span></div>
 <div class="reading sm"><span class="val" id="vHumi">--</span><span class="unit">% 湿度</span></div>
 <div class="reading sm"><span class="val" id="vPres">--</span><span class="unit">hPa 気圧</span></div>
 </div>
+<div style="margin-top:4px">
+<div class="bar-wrap"><div class="bar-fill" id="pwmBar" style="width:0%"></div><span class="bar-label" id="pwmVal">PWM 0 / 255</span></div>
+</div>
 </div>
 
-<div class="card span">
+<div class="card">
 <h2>リアルタイムグラフ</h2>
 <div class="chart-wrap"><canvas id="chart"></canvas></div>
 </div>
 
-<div class="card">
-<h2>PWM出力</h2>
-<div class="bar-wrap"><div class="bar-fill" id="pwmBar" style="width:0%"></div><span class="bar-label" id="pwmVal">0 / 255</span></div>
-<div class="reading sm" style="margin-top:8px"><span class="val" id="vSP">--</span><span class="unit">℃ 目標温度</span></div>
-</div>
-
-<div class="card">
-<h2>システム状態</h2>
-<div style="margin:6px 0"><span class="badge ok" id="statusBadge">OK</span></div>
-<div class="estop-row">
-<button class="btn red" onclick="sendCmd('stop')">緊急停止</button>
-<button class="btn green" onclick="sendCmd('start')">運転再開</button>
-</div>
-</div>
-
+<div class="ctrl-row">
 <div class="card">
 <h2>目標温度設定</h2>
+<div class="reading sm"><span class="val" id="vSP">--</span><span class="unit">℃ 現在の目標</span></div>
 <div class="row">
 <label>SP</label>
 <input class="inp" id="inSP" type="number" step="0.5" value="28.0">
@@ -103,9 +88,12 @@ canvas{width:100%!important}
 </div>
 
 <div class="card">
-<h2>PIDパラメータ</h2>
-<div class="row"><label>Kp</label><input class="inp" id="inKp" type="number" value="300"><label>Ki</label><input class="inp" id="inKi" type="number" value="80"><label>Kd</label><input class="inp" id="inKd" type="number" value="20"></div>
-<div style="margin-top:8px"><button class="btn amber" onclick="applyPID()">PID適用</button></div>
+<h2>制御</h2>
+<div class="estop-row">
+<button class="btn red" onclick="sendCmd('stop')">緊急停止</button>
+<button class="btn green" onclick="sendCmd('start')">運転再開</button>
+</div>
+</div>
 </div>
 
 </div>
@@ -117,9 +105,9 @@ const chart=new Chart(ctx,{type:'line',data:{labels,datasets:[
 {label:'湿度 %',data:hData,borderColor:'#40b8d0',backgroundColor:'transparent',tension:.3,pointRadius:0,borderWidth:1},
 {label:'気圧 hPa',data:pData,borderColor:'#5a6070',backgroundColor:'transparent',tension:.3,pointRadius:0,borderWidth:1,yAxisID:'y2'}
 ]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
-plugins:{legend:{display:true,labels:{color:'#5a6070',font:{size:10,family:'JetBrains Mono'},boxWidth:12,padding:8}}},
+plugins:{legend:{display:true,labels:{color:'#5a6070',font:{size:10},boxWidth:12,padding:8}}},
 scales:{x:{display:false},y:{position:'left',grid:{color:'#1e2230'},ticks:{color:'#5a6070',font:{size:10}}},
-y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#3a3e48',font:{size:10}}}},
+y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#3a3e38',font:{size:10}}}},
 interaction:{intersect:false,mode:'index'}}});
 
 let ws,reconn;
@@ -144,25 +132,17 @@ chart.update();
 if(d.type==='ctrl'){
 if(d.pwm!=null)setPWM(d.pwm);
 if(d.sp!=null)document.getElementById('vSP').textContent=d.sp.toFixed(1);
-if(d.kp!=null)document.getElementById('inKp').value=Math.round(d.kp*100);
-if(d.ki!=null)document.getElementById('inKi').value=Math.round(d.ki*100);
-if(d.kd!=null)document.getElementById('inKd').value=Math.round(d.kd*100);
 if(d.vtemp!=null)document.getElementById('vTemp').textContent=d.vtemp.toFixed(1);
 }
-if(d.type==='status'){
-const b=document.getElementById('statusBadge');
-const ok=d.msg==='OK';
-b.textContent=d.msg;b.className='badge '+(ok?'ok':'err');
-}}
+}
 function setPWM(v){
 const p=Math.round(v/255*100);
 document.getElementById('pwmBar').style.width=p+'%';
-document.getElementById('pwmVal').textContent=v+' / 255';
+document.getElementById('pwmVal').textContent='PWM '+v+' / 255';
 }
 function send(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
 function sendCmd(c){send({type:'cmd',cmd:c});}
 function applySP(){send({type:'cmd',cmd:'set_target',sp:parseFloat(document.getElementById('inSP').value)});}
-function applyPID(){send({type:'cmd',cmd:'set_pid',kp:parseInt(document.getElementById('inKp').value),ki:parseInt(document.getElementById('inKi').value),kd:parseInt(document.getElementById('inKd').value)});}
 connect();
 </script>
 </body>

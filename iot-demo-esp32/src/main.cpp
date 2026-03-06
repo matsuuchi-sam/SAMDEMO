@@ -1,29 +1,26 @@
 /**
  * @file main.cpp
- * @brief SAMDEMO ESP32 + BME280 ファームウェア
+ * @brief SAMDEMO ESP32 — UART ↔ Bluetooth SPP ブリッジ
  *
- * ビルド環境（platformio.ini の env）で接続方式を切り替える:
+ * Phase 7: RX63N が BME280 を直接制御するようになったため、
+ * ESP32 は GR-SAKURA の UART 出力を Bluetooth SPP (または USB)
+ * 経由で PC に転送するブリッジとして動作する。
+ *
+ * ビルド環境（platformio.ini の env）で切り替え:
  *   pio run -e usb_mode   USB Serial → python server.py --port COM4
- *   pio run -e bt_mode    Bluetooth  → python server.py --port <仮想COM>
+ *   pio run -e bt_mode    Bluetooth  → python server.py --port <BT仮想COM>
  *
- * 配線（共通）:
- *   BME280 VCC → 3.3V
- *   BME280 GND → GND
- *   BME280 SDA → GPIO21
- *   BME280 SCL → GPIO22
+ * 配線:
+ *   GR-SAKURA P20 (TXD0) → ESP32 GPIO16 (RX1)
+ *   GR-SAKURA P21 (RXD0) ← ESP32 GPIO17 (TX1)  [コマンド送信用]
+ *   GND → GND
  *
- * 送信 JSON（1秒ごと・改行区切り）:
- *   {"type":"sensor","temp":24.4,"humidity":43.9,"pressure":1018.3,"heater":false,"ts":42}
- *
- * 受信コマンド（PC → ESP32）:
- *   HEATER_ON   GPIO26 を HIGH にしてヒーター ON
- *   HEATER_OFF  GPIO26 を LOW  にしてヒーター OFF
+ * データフロー:
+ *   GR-SAKURA → UART → ESP32 Serial1 → BT/USB → PC
+ *   PC → BT/USB → ESP32 → Serial1 → GR-SAKURA
  */
 
 #include <Arduino.h>
-#include <Wire.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BME280.h>
 
 // ── BT モード時のみインクルード ────────────────────────
 #ifdef USE_BLUETOOTH
@@ -36,149 +33,58 @@
 #endif
 
 // ── 設定 ──────────────────────────────────────────────
-#define SEND_INTERVAL_MS  5000
-#define SERIAL_BAUD       115200
-#define BME280_ADDR       0x76   // 多くのモジュール: 0x76、一部: 0x77
-#define HEATER_PIN        26     // IRLZ44N Gate 制御ピン
+#define SERIAL_BAUD  115200
 
-// ── GR-SAKURA UART 受信設定 ───────────────────────────
-// GR-SAKURA Digital Pin 1 (TX/P20) → ESP32 GPIO16 (RX1)
-#define GR_RX_PIN  16
-#define GR_TX_PIN  17  // 将来用（現在未使用）
-
-// ── グローバル ─────────────────────────────────────────
-static Adafruit_BME280 bme;
-static uint32_t last_send_ms = 0;
-static uint32_t packet_count = 0;
-static bool     heater_on    = false;
-
-// ── JSON を出力する先を1か所で切り替え ────────────────
-static void send_line(const char* line) {
-#ifdef USE_BLUETOOTH
-    if (BT.connected()) {
-        BT.println(line);
-    }
-    // BT 未接続時でもデバッグ用に USB には出力する
-    Serial.println(line);
-#else
-    Serial.println(line);
-#endif
-}
-
-// ── PC からのコマンドを受信してヒーターを制御 ──────────
-static void check_commands() {
-    String line = "";
-#ifdef USE_BLUETOOTH
-    if (BT.available()) {
-        line = BT.readStringUntil('\n');
-    }
-#else
-    if (Serial.available()) {
-        line = Serial.readStringUntil('\n');
-    }
-#endif
-    line.trim();
-    if (line.length() == 0) return;
-
-    if (line == "HEATER_ON") {
-        heater_on = true;
-        digitalWrite(HEATER_PIN, HIGH);
-        send_line("{\"type\":\"heater\",\"state\":\"on\"}");
-        Serial.println("[HEATER] ON");
-    } else if (line == "HEATER_OFF") {
-        heater_on = false;
-        digitalWrite(HEATER_PIN, LOW);
-        send_line("{\"type\":\"heater\",\"state\":\"off\"}");
-        Serial.println("[HEATER] OFF");
-    }
-}
+// GR-SAKURA UART ピン
+#define GR_RX_PIN    16    // ESP32 RX1 ← GR-SAKURA TXD0
+#define GR_TX_PIN    17    // ESP32 TX1 → GR-SAKURA RXD0
 
 // ── 初期化 ────────────────────────────────────────────
 void setup() {
     Serial.begin(SERIAL_BAUD);
     delay(500);
 
-    Serial.println("\n=== SAMDEMO: ESP32 + BME280 ===");
+    Serial.println("\n=== SAMDEMO: ESP32 UART-Bridge ===");
 
 #ifdef USE_BLUETOOTH
-    // ── Bluetooth SPP 起動 ──
     BT.begin(BT_DEVICE_NAME);
     Serial.println("[BT] Bluetooth SPP 起動");
     Serial.println("[BT] デバイス名: " BT_DEVICE_NAME);
-    Serial.println("[BT] ---- PC 側の操作 ----");
-    Serial.println("[BT] 1. Windows の Bluetooth 設定を開く");
-    Serial.println("[BT]    設定 > Bluetooth とその他のデバイス > デバイスの追加");
-    Serial.println("[BT] 2. 一覧に SAMDEMO-ESP32 が出たらクリック");
-    Serial.println("[BT] 3. デバイスマネージャーで COM 番号を確認");
-    Serial.println("[BT]    ポート(COM と LPT) > Standard Serial over BT link");
-    Serial.println("[BT] 4. python server.py --port COM<番号> を実行");
-    Serial.println("[BT] ---------------------");
+    Serial.println("[BT] PC で Bluetooth ペアリング後、仮想 COM ポートを確認");
 #else
-    // ── USB Serial モード ──
-    Serial.println("[USB] USB Serial モード");
-    Serial.println("[USB] python server.py --port COM4");
-    Serial.println("[USB] http://localhost:8080 でグラフ確認");
+    Serial.println("[USB] USB Serial ブリッジモード");
 #endif
 
-    // ── GR-SAKURA UART 受信初期化 ──
-    Serial1.begin(115200, SERIAL_8N1, GR_RX_PIN, GR_TX_PIN);
-    Serial.println("[GR-SAKURA] UART1 受信待機中 (GPIO16)");
-
-    // ── BME280 初期化 ──
-    bool ok = bme.begin(BME280_ADDR);
-    if (!ok) {
-        Serial.println("[BME280] 0x76 で未検出 → 0x77 を試します");
-        ok = bme.begin(0x77);
-    }
-    if (!ok) {
-        Serial.println("[ERROR] BME280 が見つかりません！配線を確認してください。");
-        while (true) {
-            delay(2000);
-            if (bme.begin(BME280_ADDR) || bme.begin(0x77)) {
-                Serial.println("[BME280] 検出できました。");
-                break;
-            }
-        }
-    }
-    // ── ヒーターピン初期化（必ず LOW から開始）──
-    pinMode(HEATER_PIN, OUTPUT);
-    digitalWrite(HEATER_PIN, LOW);
-    Serial.println("[HEATER] GPIO26 初期化 → OFF");
-
-    Serial.println("[BME280] 初期化完了 → 送信開始");
+    // GR-SAKURA UART 接続
+    Serial1.begin(SERIAL_BAUD, SERIAL_8N1, GR_RX_PIN, GR_TX_PIN);
+    Serial.println("[UART] Serial1 初期化 (GPIO16=RX, GPIO17=TX)");
+    Serial.println("[BRIDGE] GR-SAKURA ↔ ESP32 ↔ PC ブリッジ開始");
     Serial.println();
 }
 
 // ── メインループ ──────────────────────────────────────
 void loop() {
-    // ── GR-SAKURA からのデータを USB シリアルに転送 ──
+    // ── GR-SAKURA → PC (BT/USB) ──
     while (Serial1.available()) {
-        Serial.write(Serial1.read());
+        int c = Serial1.read();
+#ifdef USE_BLUETOOTH
+        if (BT.connected()) {
+            BT.write(c);
+        }
+#endif
+        Serial.write(c);   // USB にも常時出力 (デバッグ用)
     }
 
-    check_commands();  // PC からのコマンドを常時チェック
-
-    uint32_t now = millis();
-    if (now - last_send_ms < SEND_INTERVAL_MS) return;
-    last_send_ms = now;
-
-    float temp     = bme.readTemperature();
-    float humidity = bme.readHumidity();
-    float pressure = bme.readPressure() / 100.0F;
-
-    if (isnan(temp) || isnan(humidity) || isnan(pressure)) {
-        Serial.println("[WARN] センサー読み取りエラー");
-        return;
+    // ── PC (BT/USB) → GR-SAKURA ──
+#ifdef USE_BLUETOOTH
+    while (BT.available()) {
+        int c = BT.read();
+        Serial1.write(c);
+        Serial.write(c);   // エコー
     }
-
-    char buf[160];
-    snprintf(buf, sizeof(buf),
-        "{\"type\":\"sensor\",\"temp\":%.1f,\"humidity\":%.1f,"
-        "\"pressure\":%.1f,\"heater\":%s,\"ts\":%lu}",
-        temp, humidity, pressure,
-        heater_on ? "true" : "false",
-        now / 1000UL);
-
-    send_line(buf);
-    packet_count++;
+#endif
+    while (Serial.available()) {
+        int c = Serial.read();
+        Serial1.write(c);
+    }
 }
