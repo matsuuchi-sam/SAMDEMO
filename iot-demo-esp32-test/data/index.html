@@ -8,45 +8,51 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
---bg:#12141a;--panel:#1a1d25;--border:#2a2e38;--txt:#c8ccd4;--dim:#5a6070;
---amber:#f0a030;--amber-dim:#805818;--red:#e84040;--green:#40c060;--cyan:#40b8d0;
---font:'JetBrains Mono','Consolas','Courier New',monospace
+--bg:#f0f2f5;--panel:#fff;--border:#dde1e7;--txt:#1e2330;--dim:#8a90a0;
+--accent:#2563eb;--red:#dc2626;--green:#16a34a;
+--font:system-ui,-apple-system,'Segoe UI',sans-serif
 }
-body{background:var(--bg);color:var(--txt);font:13px/1.5 var(--font);min-height:100vh}
-.hdr{background:var(--panel);border-bottom:2px solid var(--amber-dim);padding:10px 16px;display:flex;align-items:center;gap:12px}
-.hdr h1{font-size:15px;color:var(--amber);letter-spacing:2px;text-transform:uppercase}
-.hdr .dot{width:8px;height:8px;border-radius:50%;background:var(--red);animation:pulse 2s infinite}
-.hdr .dot.on{background:var(--green);animation:none}
-.hdr .status{margin-left:auto;font-size:11px;color:var(--dim)}
+body{background:var(--bg);color:var(--txt);font:12px/1.5 var(--font);min-height:100vh}
+.hdr{background:var(--accent);padding:8px 16px;display:flex;align-items:center;gap:8px}
+.hdr h1{font-size:14px;font-weight:600;color:#fff;letter-spacing:.3px}
+.hdr .dot{width:7px;height:7px;border-radius:50%;background:#f87171;animation:pulse 2s infinite}
+.hdr .dot.on{background:#4ade80;animation:none}
+.hdr .status{margin-left:auto;font-size:11px;color:rgba(255,255,255,.7)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.main{max-width:900px;margin:0 auto;padding:10px;display:flex;flex-direction:column;gap:10px}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:12px}
-.card h2{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:6px}
-.reading{display:flex;align-items:baseline;gap:6px;margin:6px 0}
-.reading .val{font-size:28px;font-weight:700;color:var(--amber)}
-.reading .unit{font-size:12px;color:var(--dim)}
-.reading.sm .val{font-size:18px}
-.readings-row{display:flex;gap:16px;flex-wrap:wrap}
-.bar-wrap{background:#0d0f14;border:1px solid var(--border);border-radius:2px;height:22px;position:relative;overflow:hidden;margin:4px 0}
-.bar-fill{height:100%;background:linear-gradient(90deg,var(--amber-dim),var(--amber));transition:width .5s;border-radius:1px}
-.bar-label{position:absolute;right:6px;top:2px;font-size:11px;color:var(--txt)}
-.ctrl-row{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
-.ctrl-row .card{flex:1;min-width:200px}
-.row{display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap}
-.row label{font-size:11px;color:var(--dim);min-width:28px}
-.inp{background:#0d0f14;border:1px solid var(--border);color:var(--amber);font:13px var(--font);padding:4px 8px;width:72px;border-radius:2px;text-align:right}
-.inp:focus{outline:none;border-color:var(--amber)}
-.btn{background:var(--border);color:var(--txt);border:1px solid #3a3e48;font:11px var(--font);padding:5px 14px;cursor:pointer;border-radius:2px;text-transform:uppercase;letter-spacing:1px;transition:all .15s}
-.btn:hover{background:#3a3e48;border-color:var(--dim)}
+.main{max-width:860px;margin:0 auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
+.card h2{font-size:11px;font-weight:600;color:var(--dim);margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.card h2::before{content:'';display:inline-block;width:3px;height:11px;border-radius:2px;background:var(--accent)}
+.stat-row{display:flex;gap:8px;flex-wrap:wrap}
+.stat{flex:1;min-width:100px;background:#f8f9fb;border:1px solid var(--border);border-radius:6px;padding:8px 10px}
+.stat .label{font-size:10px;color:var(--dim);margin-bottom:2px}
+.stat .val{font-size:22px;font-weight:700;line-height:1.1}
+.stat .unit{font-size:11px;color:var(--dim)}
+.stat.temp{border-top:3px solid #2563eb}.stat.temp .val{color:#2563eb}
+.stat.humi{border-top:3px solid #0891b2}.stat.humi .val{color:#0891b2}
+.stat.pres{border-top:3px solid #7c3aed}.stat.pres .val{color:#7c3aed}
+.bar-wrap{background:#f0f2f5;border:1px solid var(--border);border-radius:3px;height:16px;position:relative;overflow:hidden;margin-top:8px}
+.bar-fill{height:100%;background:linear-gradient(90deg,#2563eb,#0891b2,#f59e0b,#dc2626);transition:width .5s;background-size:860px 100%}
+.bar-label{position:absolute;right:6px;top:1px;font-size:10px;color:var(--dim)}
+.ctrl-row{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch}
+.ctrl-row .card{flex:1;min-width:180px}
+.sp-val{font-size:18px;font-weight:700;color:var(--txt);margin-bottom:6px}
+.sp-val span{font-size:11px;color:var(--dim);font-weight:400;margin-left:4px}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.row label{font-size:11px;color:var(--dim)}
+.inp{background:#f8f9fb;border:1px solid var(--border);color:var(--txt);font:12px var(--font);padding:4px 8px;width:68px;border-radius:4px;text-align:right}
+.inp:focus{outline:none;border-color:var(--accent)}
+.btn{background:#f0f2f5;color:var(--txt);border:1px solid var(--border);font:12px var(--font);padding:4px 12px;cursor:pointer;border-radius:4px;transition:all .15s}
+.btn:hover{background:#e4e6ea}
 .btn:active{transform:scale(.97)}
-.btn.amber{background:var(--amber-dim);color:#fff;border-color:var(--amber)}
-.btn.amber:hover{background:var(--amber)}
-.btn.red{background:#5a1818;color:#fcc;border-color:var(--red);flex:1;padding:10px;font-size:13px;font-weight:700}
-.btn.red:hover{background:var(--red);color:#fff}
-.btn.green{background:#184a28;color:#cfc;border-color:var(--green);flex:1;padding:10px;font-size:13px;font-weight:700}
-.btn.green:hover{background:var(--green);color:#fff}
-.estop-row{display:flex;gap:8px;margin-top:8px}
-.chart-wrap{height:180px;position:relative}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.primary:hover{background:#1d4ed8}
+.estop-row{display:flex;gap:6px;margin-top:4px}
+.btn.red{background:#fff;color:var(--red);border:1px solid #fca5a5;flex:1;padding:8px;font-size:12px;font-weight:600;border-radius:4px}
+.btn.red:hover{background:#fef2f2;border-color:var(--red)}
+.btn.green{background:#fff;color:var(--green);border:1px solid #86efac;flex:1;padding:8px;font-size:12px;font-weight:600;border-radius:4px}
+.btn.green:hover{background:#f0fdf4;border-color:var(--green)}
+.chart-wrap{height:160px;position:relative}
 canvas{width:100%!important}
 </style>
 </head>
@@ -60,14 +66,12 @@ canvas{width:100%!important}
 
 <div class="card">
 <h2>センサーデータ</h2>
-<div class="readings-row">
-<div class="reading"><span class="val" id="vTemp">--</span><span class="unit">℃ 温度</span></div>
-<div class="reading sm"><span class="val" id="vHumi">--</span><span class="unit">% 湿度</span></div>
-<div class="reading sm"><span class="val" id="vPres">--</span><span class="unit">hPa 気圧</span></div>
+<div class="stat-row">
+<div class="stat temp"><div class="label">温度</div><div class="val" id="vTemp">--</div><div class="unit">℃</div></div>
+<div class="stat humi"><div class="label">湿度</div><div class="val" id="vHumi">--</div><div class="unit">%</div></div>
+<div class="stat pres"><div class="label">気圧</div><div class="val" id="vPres">--</div><div class="unit">hPa</div></div>
 </div>
-<div style="margin-top:4px">
-<div class="bar-wrap"><div class="bar-fill" id="pwmBar" style="width:0%"></div><span class="bar-label" id="pwmVal">PWM 0 / 255</span></div>
-</div>
+<div class="bar-wrap"><div class="bar-fill" id="pwmBar" style="width:0%"></div><span class="bar-label" id="pwmVal">ヒーター出力 0 / 255</span></div>
 </div>
 
 <div class="card">
@@ -78,12 +82,12 @@ canvas{width:100%!important}
 <div class="ctrl-row">
 <div class="card">
 <h2>目標温度設定</h2>
-<div class="reading sm"><span class="val" id="vSP">--</span><span class="unit">℃ 現在の目標</span></div>
+<div class="sp-val"><span id="vSP">--</span><span>℃ 現在の目標</span></div>
 <div class="row">
 <label>SP</label>
 <input class="inp" id="inSP" type="number" step="0.5" value="28.0">
-<span class="unit">℃</span>
-<button class="btn amber" onclick="applySP()">適用</button>
+<span style="font-size:11px;color:var(--dim)">℃</span>
+<button class="btn primary" onclick="applySP()">適用</button>
 </div>
 </div>
 
@@ -101,13 +105,13 @@ canvas{width:100%!important}
 const MAX=60,labels=[],tData=[],hData=[],pData=[];
 const ctx=document.getElementById('chart').getContext('2d');
 const chart=new Chart(ctx,{type:'line',data:{labels,datasets:[
-{label:'温度 ℃',data:tData,borderColor:'#f0a030',backgroundColor:'rgba(240,160,48,.1)',fill:true,tension:.3,pointRadius:0,borderWidth:1.5},
-{label:'湿度 %',data:hData,borderColor:'#40b8d0',backgroundColor:'transparent',tension:.3,pointRadius:0,borderWidth:1},
-{label:'気圧 hPa',data:pData,borderColor:'#5a6070',backgroundColor:'transparent',tension:.3,pointRadius:0,borderWidth:1,yAxisID:'y2'}
+{label:'温度 ℃',data:tData,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.08)',fill:true,tension:.3,pointRadius:0,borderWidth:2},
+{label:'湿度 %',data:hData,borderColor:'#0891b2',backgroundColor:'transparent',tension:.3,pointRadius:0,borderWidth:1.5},
+{label:'気圧 hPa',data:pData,borderColor:'#94a3b8',backgroundColor:'transparent',tension:.3,pointRadius:0,borderWidth:1,yAxisID:'y2'}
 ]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
-plugins:{legend:{display:true,labels:{color:'#5a6070',font:{size:10},boxWidth:12,padding:8}}},
-scales:{x:{display:false},y:{position:'left',grid:{color:'#1e2230'},ticks:{color:'#5a6070',font:{size:10}}},
-y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#3a3e38',font:{size:10}}}},
+plugins:{legend:{display:true,labels:{color:'#8a90a0',font:{size:11},boxWidth:12,padding:10}}},
+scales:{x:{display:false},y:{position:'left',grid:{color:'#e8eaed'},ticks:{color:'#8a90a0',font:{size:11}}},
+y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#b0b8c8',font:{size:11}}}},
 interaction:{intersect:false,mode:'index'}}});
 
 let ws,reconn;
@@ -138,7 +142,7 @@ if(d.vtemp!=null)document.getElementById('vTemp').textContent=d.vtemp.toFixed(1)
 function setPWM(v){
 const p=Math.round(v/255*100);
 document.getElementById('pwmBar').style.width=p+'%';
-document.getElementById('pwmVal').textContent='PWM '+v+' / 255';
+document.getElementById('pwmVal').textContent='ヒーター出力 '+v+' / 255';
 }
 function send(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
 function sendCmd(c){send({type:'cmd',cmd:c});}
